@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kicad2ems-openems"
+dynamic = ["version"]
+description = "openEMS (3D FDTD) as a kicad2ems solver plugin"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "GPL-3.0-or-later"}
+classifiers = [
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
+]
+authors = [{ name = "Claude", email = "noreply@anthropic.com" }]
+dependencies = [
+    "kicad2ems>=261027",           # the FDTD model, mesh and runs (kicad2ems.fdtd) this plugin hands to openEMS
+    "h5py>=3",                     # openEMS's own Python package needs it
+]
+# openEMS and CSXCAD are not on PyPI: install them from your distribution or build them from source (kicad2ems's
+# README); without them the plugin loads and reports openEMS as not usable (kicad2ems --check).
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+
+# kicad2ems finds its solvers and FDTD engines through these groups
+[project.entry-points."kicad2ems.solvers"]
+openems = "kicad2ems_openems.plugin:OpenEMS"
+
+[project.entry-points."kicad2ems.engines"]
+openems = "kicad2ems_openems.engine"
+
+[tool.setuptools.dynamic]
+version = {attr = "kicad2ems_openems.__version__"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
