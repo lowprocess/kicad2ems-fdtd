@@ -22,8 +22,8 @@ kicad2ems's README). Without them the plugin still loads and `kicad2ems --check`
 
     python -m pytest
 
-They need kicad2ems's checkout for its example boards and fixtures (`KICAD2EMS_SRC`, default `../kicad2ems`);
-openEMS itself is replaced by a strict stand-in, as in kicad2ems's own tests.
+They need kicad2ems's checkout for its example boards and fixtures (`KICAD2EMS_SRC`, default `../kicad2ems`),
+and not openEMS: they cover the mesh levels of `--converge`, its verdict and a `--preview`, and `openems_venv`.
 
 ## Licence
 
