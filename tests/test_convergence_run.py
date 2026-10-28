@@ -4,9 +4,9 @@ pipeline tests)."""
 import json
 import numpy as np
 import pytest
-from kicad2ems.fdtd import run
-from kicad2ems.fdtd.run import RunResult
-from kicad2ems_openems import engine
+from kicad2ems_fdtd import run
+from kicad2ems_fdtd.run import RunResult
+from kicad2ems_fdtd.openems import engine
 
 
 def _canned(m, mesh, freq, excite, bc, out_dir, **kw):

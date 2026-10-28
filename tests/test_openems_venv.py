@@ -1,6 +1,6 @@
 """openems_venv: an openEMS in another Python environment, its site-packages put last on sys.path."""
 import sys
-from kicad2ems_openems import venv
+from kicad2ems_fdtd.openems import venv
 
 
 def _env(tmp_path, version):
@@ -31,7 +31,7 @@ def test_other_version_or_no_env_says_why(tmp_path, monkeypatch):
 def test_the_check_names_the_setting(tmp_path, monkeypatch):
     """The openEMS check reports the setting, and when it is why openEMS is missing, says so first."""
     from kicad2ems import sitecfg
-    from kicad2ems_openems.plugin import OpenEMS
+    from kicad2ems_fdtd.openems.plugin import OpenEMS
     root, _ = _env(tmp_path, '3.9')
     monkeypatch.setattr(sitecfg, '_cache', {'openems_venv': str(root)})
     monkeypatch.setattr(venv, '_done', None)

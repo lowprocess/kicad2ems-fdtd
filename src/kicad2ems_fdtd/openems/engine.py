@@ -1,5 +1,5 @@
 """
-openEMS as an FDTD engine (kicad2ems.fdtd.engines, through the 'kicad2ems.engines' entry point): its CSXCAD /
+openEMS as an FDTD engine (engines.py): its CSXCAD /
 openEMS classes, from this Python or the openems_venv setting (venv.py), and the check of that import.
 """
 import os
@@ -9,7 +9,7 @@ LABEL = 'openEMS'                   # the engine's name in kicad2ems's log
 
 def api(_option=''):
     """(ContinuousStructure, openEMS): openEMS's own classes, the structure given AddDebyeMaterial where this
-    CSXCAD lacks it (kicad2ems.fdtd.model builds wideband dielectrics with it)."""
+    CSXCAD lacks it (model.py builds wideband dielectrics with it)."""
     from .venv import activate
     activate()                                                  # an openEMS in another venv (openems_venv)
     from CSXCAD import ContinuousStructure

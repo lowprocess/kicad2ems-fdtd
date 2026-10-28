@@ -3,9 +3,9 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "kicad2ems-openems"
+name = "kicad2ems-fdtd"
 dynamic = ["version"]
-description = "openEMS (3D FDTD) as a kicad2ems solver plugin"
+description = "The FDTD solvers of kicad2ems: openEMS and gfdtd on one shared FDTD model"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "GPL-3.0-or-later"}
@@ -16,24 +16,25 @@ classifiers = [
 ]
 authors = [{ name = "Claude", email = "noreply@anthropic.com" }]
 dependencies = [
-    "kicad2ems>=261027",           # the FDTD model, mesh and runs (kicad2ems.fdtd) this plugin hands to openEMS
-    "h5py>=3",                     # openEMS's own Python package needs it
+    "kicad2ems>=261028",           # kicad2ems.api.solver 2.0: the solver interface and what an FDTD layer uses
+    "numpy>=1.24",
+    "shapely>=2.0",
 ]
-# openEMS and CSXCAD are not on PyPI: install them from your distribution or build them from source (kicad2ems's
-# README); without them the plugin loads and reports openEMS as not usable (kicad2ems --check).
 
 [project.optional-dependencies]
+# openEMS and CSXCAD are not on PyPI: install them from your distribution or build them from source (kicad2ems's
+# README); without them the openems solver loads and reports openEMS as not usable (kicad2ems --check).
+openems = ["h5py>=3"]                                                       # openEMS's own Python package needs it
+gfdtd = ["gfdtd @ git+https://github.com/lowprocess/gfdtd"]                 # the GPU / CPU-core FDTD engine
 test = ["pytest>=7"]
 
-# kicad2ems finds its solvers and FDTD engines through these groups
+# kicad2ems finds its solvers through this group; the engines are this package's own (engines.py)
 [project.entry-points."kicad2ems.solvers"]
-openems = "kicad2ems_openems.plugin:OpenEMS"
-
-[project.entry-points."kicad2ems.engines"]
-openems = "kicad2ems_openems.engine"
+openems = "kicad2ems_fdtd.openems.plugin:OpenEMS"
+gfdtd = "kicad2ems_fdtd.gfdtd:GFDTD"
 
 [tool.setuptools.dynamic]
-version = {attr = "kicad2ems_openems.__version__"}
+version = {attr = "kicad2ems_fdtd.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["src"]

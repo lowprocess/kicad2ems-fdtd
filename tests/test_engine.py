@@ -1,7 +1,7 @@
 """openEMS's import check (engine.check, kicad2ems --check): this Python, the modules, and on a failure the real
 error with a hint (from kicad2ems's tests)."""
 import sys
-from kicad2ems_openems.engine import check
+from kicad2ems_fdtd.openems.engine import check
 
 
 def test_check_reports_python_and_modules():

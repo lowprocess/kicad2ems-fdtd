@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 from kicad2ems.importers.kicad import KiCadBoard
 from kicad2ems.board import Board
-from kicad2ems_openems.converge import mesh_levels, compare_levels, verdict
+from kicad2ems_fdtd.openems.converge import mesh_levels, compare_levels, verdict
 
 
 

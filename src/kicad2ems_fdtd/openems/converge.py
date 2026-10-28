@@ -5,7 +5,7 @@ through each dielectric; everything else unchanged. The finest level is the refe
 level is compared with it.
 """
 import numpy as np
-from kicad2ems.api.solver import auto_mesh
+from ..mesh import auto_mesh
 
 
 def mesh_levels(m, fmin, fmax, factors, res=20, fine=None, nz_min=4, log=print, **mesh_kw):
