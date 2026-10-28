@@ -54,3 +54,23 @@ def test_build_fdtd_builds_the_board_on_gfdtd(demo_files):
     assert len(ports) == len(m.ports) == 2 and len(op.exc[0]) > 0
     assert op.n_pec[2] > 0                                            # the vias' z edges
     assert len(op.probes) == 4 and op.bc == bc
+
+
+def test_engine_api_version(monkeypatch):
+    """The connection checks gfdtd's API_VERSION: the same major and at least the minor it was written for; else
+    the solver is not usable (kicad2ems --check says which package to update) and the engine refuses to build."""
+    from kicad2ems_fdtd import gfdtd as conn
+    from kicad2ems_fdtd.engines import engine_api
+    assert conn.engine_compatible() is None and conn.GFDTD().check()[0]
+    monkeypatch.setattr(gfdtd, 'API_VERSION', (conn.ENGINE_API[0], conn.ENGINE_API[1] + 1), raising=False)
+    assert conn.engine_compatible() is None                         # a newer minor: only additions
+    monkeypatch.setattr(gfdtd, 'API_VERSION', (conn.ENGINE_API[0] + 1, 0))
+    ok, why = conn.GFDTD().check()
+    assert not ok and 'update kicad2ems-fdtd' in why
+    with pytest.raises(RuntimeError, match='update kicad2ems-fdtd'):
+        engine_api('gfdtd:numpy')
+    monkeypatch.setattr(gfdtd, 'API_VERSION', (conn.ENGINE_API[0], conn.ENGINE_API[1] - 1) if conn.ENGINE_API[1]
+                        else (conn.ENGINE_API[0] - 1, 9))
+    assert 'update gfdtd' in conn.engine_compatible()
+    monkeypatch.delattr(gfdtd, 'API_VERSION')
+    assert 'no API version' in conn.engine_compatible() and 'update gfdtd' in conn.engine_compatible()

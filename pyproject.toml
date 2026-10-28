@@ -25,7 +25,8 @@ dependencies = [
 # openEMS and CSXCAD are not on PyPI: install them from your distribution or build them from source (kicad2ems's
 # README); without them the openems solver loads and reports openEMS as not usable (kicad2ems --check).
 openems = ["h5py>=3"]                                                       # openEMS's own Python package needs it
-gfdtd = ["gfdtd @ git+https://github.com/lowprocess/gfdtd"]                 # the GPU / CPU-core FDTD engine
+gfdtd = ["gfdtd @ git+https://github.com/lowprocess/gfdtd"]                 # the GPU / CPU-core FDTD engine (its
+                                                                            # API_VERSION is checked against gfdtd.py's ENGINE_API)
 test = ["pytest>=7"]
 
 # kicad2ems finds its solvers through this group; the engines are this package's own (engines.py)

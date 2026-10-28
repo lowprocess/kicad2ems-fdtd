@@ -13,6 +13,7 @@ from kicad2ems.api.solver import Option, AUTO
 from .plugin import FDTD, MESH, RUN
 
 G = 'gfdtd'                                     # its section in kicad2ems's GUI
+ENGINE_API = (1, 0)                             # the gfdtd API this connection is written against (gfdtd.API_VERSION)
 # gfdtd's speed over openEMS's estimate (24 threads), per backend: the examples' runs on an RX 7800 XT and an
 # i7-13700K, 8-70x on the GPU and 2-2.3x on the core (docs/gfdtd.md#speed); numpy ~10x slower than openEMS.
 # START: seconds of setup a run (CuPy's kernels, the core's threads)
@@ -42,6 +43,9 @@ class GFDTD(FDTD):
             from gfdtd.engine import gpu_info, core_info
         except ImportError as e:
             return False, f"gfdtd cannot be imported ({e}): python -m pip install 'kicad2ems-fdtd[gfdtd]'"
+        why = engine_compatible()
+        if why:
+            return False, why
         gpu, what = gpu_info()
         want = getattr(s, 'gfdtd_backend', 'auto') if s is not None else 'auto'
         if want == 'gpu' and not gpu:
@@ -65,7 +69,8 @@ class GFDTD(FDTD):
         if not ok:
             return ok, [what]
         import gfdtd
-        return ok, [f"gfdtd {gfdtd.__version__} ({os.path.dirname(gfdtd.__file__)})", what]
+        return ok, [f"gfdtd {gfdtd.__version__} ({os.path.dirname(gfdtd.__file__)}), engine API "
+                    f"{'.'.join(map(str, gfdtd.API_VERSION))}", what]
 
     def validate(self, s):
         return None
@@ -118,9 +123,28 @@ LABEL = 'gfdtd'                     # the engine's name in kicad2ems's log
 IN_THREADS = True                   # one process: the runs share the GPU (a stream each)
 
 
+def engine_compatible():
+    """None when the installed gfdtd's API (gfdtd.API_VERSION) is one this connection can use: the major version
+    of ENGINE_API and at least its minor. Else why not, and which package to update."""
+    import gfdtd
+    want = '.'.join(map(str, ENGINE_API))
+    have = getattr(gfdtd, 'API_VERSION', None)
+    if have is None:
+        return f"gfdtd {gfdtd.__version__} has no API version (before 261028): update gfdtd (kicad2ems-fdtd wants {want})"
+    have = tuple(have)
+    if have[0] == ENGINE_API[0] and have[1] >= ENGINE_API[1]:
+        return None
+    newer = have[0] > ENGINE_API[0]
+    return (f"gfdtd {gfdtd.__version__} has engine API {'.'.join(map(str, have))}, kicad2ems-fdtd is written for "
+            f"{want}: update {'kicad2ems-fdtd' if newer else 'gfdtd'}")
+
+
 def api(backend=''):
     """(ContinuousStructure, openEMS) of gfdtd's engine (engines.py) on a backend: cupy, core, numpy or
-    auto."""
+    auto. Refuses a gfdtd of another engine API (engine_compatible)."""
     import functools
     import gfdtd
+    why = engine_compatible()
+    if why:
+        raise RuntimeError(why)
     return gfdtd.ContinuousStructure, functools.partial(gfdtd.openEMS, backend=backend or 'auto')
