@@ -21,7 +21,7 @@ SPEEDUP, START = dict(cupy=8.0, core=2.0, numpy=0.1), 2.0
 
 
 class GFDTD(FDTD):
-    api = (2, 0)                    # kicad2ems.api
+    api = (2, 1)                    # kicad2ems.api
     name, aliases, label = 'gfdtd', ('gpu-fdtd',), 'gfdtd (GPU FDTD)'
     in_auto = True                  # auto: picked over openEMS where it can (no --sigma, --converge, --drive)
     in_all = False                  # --solvers all: openEMS's model again, named on its own

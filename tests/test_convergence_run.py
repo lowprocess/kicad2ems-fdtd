@@ -2,30 +2,14 @@
 and the check says converged; the plot, the summary and the report's section are written (from kicad2ems's
 pipeline tests)."""
 import json
-import numpy as np
-import pytest
 from kicad2ems_fdtd import run
-from kicad2ems_fdtd.run import RunResult
 from kicad2ems_fdtd.openems import engine
-
-
-def _canned(m, mesh, freq, excite, bc, out_dir, **kw):
-    """A plausible thru: |S21| ~ -0.3 dB with 130 ps delay, S11 ~ -25 dB."""
-    n = len(m.ports)
-    r = RunResult(np.full((len(freq), n, n), np.nan + 0j))
-    ph = np.exp(-2j * np.pi * freq * 130e-12)
-    for k in excite:
-        r.S[:, k, k] = 0.056 * ph
-        for i in range(n):
-            if i != k:
-                r.S[:, i, k] = 0.966 * ph
-        r.seconds[m.ports[k].name], r.steps[m.ports[k].name] = 12.0, 30000
-    return r
+from conftest import canned_runs
 
 
 def test_converge_run(demo_files, run_cli, tmp_path, monkeypatch):
     monkeypatch.setattr(engine, 'check', lambda: (True, []))
-    monkeypatch.setattr(run, 'run_excitations', _canned)
+    monkeypatch.setattr(run, 'run_excitations', canned_runs)
     base, _ = demo_files
     out = tmp_path / 'out'
     code, so, err = run_cli(base + '.kicad_pcb', '--pos', base + '-top.pos', '--nets', 'RF,GND', '--ground', 'B.Cu',

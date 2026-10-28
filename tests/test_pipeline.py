@@ -5,28 +5,14 @@ import json
 import numpy as np
 import pytest
 from kicad2ems_fdtd import run, antenna
-from kicad2ems_fdtd.run import RunResult
 from kicad2ems_fdtd.openems import engine
-
-
-def _canned(m, mesh, freq, excite, bc, out_dir, **kw):
-    """A plausible thru: |S21| ~ -0.3 dB with 130 ps delay, S11 ~ -25 dB."""
-    n = len(m.ports)
-    r = RunResult(np.full((len(freq), n, n), np.nan + 0j))
-    ph = np.exp(-2j * np.pi * freq * 130e-12)
-    for k in excite:
-        r.S[:, k, k] = 0.056 * ph
-        for i in range(n):
-            if i != k:
-                r.S[:, i, k] = 0.966 * ph
-        r.seconds[m.ports[k].name], r.steps[m.ports[k].name] = 12.0, 30000
-    return r
+from conftest import canned_runs
 
 
 @pytest.fixture
 def no_openems(monkeypatch):
     monkeypatch.setattr(engine, 'check', lambda: (True, []))
-    monkeypatch.setattr(run, 'run_excitations', _canned)
+    monkeypatch.setattr(run, 'run_excitations', canned_runs)
 
 
 def test_sparams_run_with_fast_model(demo_files, run_cli, tmp_path, no_openems):
@@ -53,7 +39,7 @@ def test_antenna_run(boards, run_cli, tmp_path, monkeypatch):
     monkeypatch.setattr(engine, 'check', lambda: (True, []))
 
     def fake_antenna(m, mesh, freq, k, bc, out_dir, ff_extra=(), ff_pattern=None, step=2.0, log=print, **kw):
-        r = _canned(m, mesh, freq, [k], bc, out_dir)
+        r = canned_runs(m, mesh, freq, [k], bc, out_dir)
         f0 = 2.45e9
         s11 = 0.9 - 0.85 * np.exp(-((freq - f0) / 0.05e9) ** 2) + 0j
         r.S[:, k, k] = s11

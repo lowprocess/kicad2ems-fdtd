@@ -434,7 +434,7 @@ def auto_mesh(m, fmin, fmax, res=20, fine=None, air=5.0, ratio=1.4, bc=('MUR',) 
     dmin = [np.diff(mesh[k]).min() * 1e-3 for k in range(3)]
     dt = 1 / (C0 * np.sqrt(sum(1 / d ** 2 for d in dmin)))
     info = dict(nx=nx, ny=ny, nz=nz, cells=nx * ny * nz, fine_mm=fine, maxres_die_mm=M_die, maxres_air_mm=M_air,
-                air_mm=min(sides), air_sides_mm=sides, bc=list(bc), curves=curves, vias=vias, vias_snapped=nsnap,
+                air_mm=min(sides), air_sides_mm=sides, air_text=air_text(air), bc=list(bc), curves=curves, vias=vias, vias_snapped=nsnap,
                 via_max_move_mm=float(max(moved, default=0.0)), dt_ps=dt * 1e12, min_cell_mm=[d * 1e3 for d in dmin],
                 mem_gb=nx * ny * nz * 150e-9)
     log(f"mesh: {nx} x {ny} x {nz} = {nx * ny * nz / 1e6:.2f} M cells (fine {fine:.3f} mm, max {M_die:.2f} mm in "

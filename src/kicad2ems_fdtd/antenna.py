@@ -10,7 +10,7 @@ basis). run_phased runs them; combine_phased gives the drive's antenna result an
 """
 import functools
 import numpy as np
-from kicad2ems.api.solver import C0
+from kicad2ems.api.solver import C0, ETA0
 from kicad2ems.api.solver import match_summary, gain_table, add_polarisation, pattern_gain, describe_antenna as describe
 
 
@@ -164,7 +164,7 @@ def combine_phased(m, freq, res, a, excite, ff_pattern=None, step=2.0, log=print
     for name in [c for c, _ in CUTS] + ['xy (theta = 90)']:
         Et = sum(a[j] * res.extra[names[j]]['cuts'][name][0][ip] for j in driven)
         Ep = sum(a[j] * res.extra[names[j]]['cuts'][name][1][ip] for j in driven)
-        g = 4 * np.pi * (np.abs(Et) ** 2 + np.abs(Ep) ** 2) / (2 * 376.730313668) / pacc
+        g = 4 * np.pi * (np.abs(Et) ** 2 + np.abs(Ep) ** 2) / (2 * ETA0) / pacc
         cuts[name] = dict(angle=list(map(float, tc if name != 'xy (theta = 90)' else pa)),
                           gain_dbi=[float(v) for v in 10 * np.log10(np.maximum(g, 1e-6))])
     e_pat = sph['e_norm'][ip]

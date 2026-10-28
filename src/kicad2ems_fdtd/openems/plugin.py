@@ -21,7 +21,7 @@ CONVERGE = [
 
 
 class OpenEMS(FDTD):
-    api = (2, 0)                    # kicad2ems.api
+    api = (2, 1)                    # kicad2ems.api
     name, aliases, label = 'openems', ('fdtd',), 'openEMS (FDTD)'
     previewed = True
     order = 10                      # first in kicad2ems's lists: the reference

@@ -16,9 +16,10 @@ classifiers = [
 ]
 authors = [{ name = "Claude", email = "noreply@anthropic.com" }]
 dependencies = [
-    "kicad2ems>=261028",           # kicad2ems.api.solver 2.0: the solver interface and what an FDTD layer uses
+    "kicad2ems>=261028.post1",     # kicad2ems.api.solver 2.1: the solver interface and what an FDTD layer uses
     "numpy>=1.24",
     "shapely>=2.0",
+    "emsdev @ https://github.com/lowprocess/emsdev/archive/refs/heads/main.zip",   # gfdtd's GPU in --check
 ]
 
 [project.optional-dependencies]
