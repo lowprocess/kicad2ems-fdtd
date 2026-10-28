@@ -30,7 +30,7 @@ def check():
     """Can this Python import openEMS? Returns (ok, report lines) with the real errors and hints."""
     import importlib, shutil, sys
     from .venv import activate
-    from kicad2ems import sitecfg
+    from kicad2ems.api.solver import sitecfg
     why = activate()
     lines = [f"python      {sys.executable}",
              f"environment {sys.prefix}" + ("  (virtual env)" if sys.prefix != getattr(sys, 'base_prefix', sys.prefix) else "  (no virtual env active)"),

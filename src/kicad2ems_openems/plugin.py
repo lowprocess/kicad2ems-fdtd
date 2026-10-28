@@ -7,8 +7,8 @@ What openEMS changes on the way (declared deviations, docs/architecture.md): via
 """
 import os
 
-from kicad2ems.options import Option, floatlist, floats
-from kicad2ems.fdtd.plugin import FDTD, MESH, RUN, G_MESH
+from kicad2ems.api.solver import Option, floatlist, floats
+from kicad2ems.api.solver import FDTD, MESH, RUN, G_MESH
 
 CONVERGE = [
     Option('converge', None, "mesh convergence check: run on several mesh levels, level f with --res x f and "
@@ -21,6 +21,7 @@ CONVERGE = [
 
 
 class OpenEMS(FDTD):
+    api = (1, 0)                    # kicad2ems.api
     name, aliases, label = 'openems', ('fdtd',), 'openEMS (FDTD)'
     previewed = True
     order = 10                      # first in kicad2ems's lists: the reference
@@ -72,8 +73,8 @@ class OpenEMS(FDTD):
         return p.levels[-1][1]                                      # the finest level gives the result
 
     def coarse(self, run, p, jobs, run_kw):
-        from kicad2ems.fdtd.run import run_excitations
-        from kicad2ems.sparams import mixed_mode, fill_reciprocal
+        from kicad2ems.api.solver import run_excitations
+        from kicad2ems.api.solver import mixed_mode, fill_reciprocal
         for f, lm in (p.levels or [])[:-1]:
             run.log(f"--- mesh level x{f:g} ({lm['info']['cells'] / 1e6:.2f} M cells) ---")
             r = run_excitations(run.m, lm, run.freq, p.excite, p.bc, os.path.join(run.s.out, 'converge', f"L{f:g}"),
@@ -90,7 +91,7 @@ class OpenEMS(FDTD):
 
     def _convergence(self, run, p, res):
         from .converge import compare_levels, verdict
-        from kicad2ems.plots import plot_convergence
+        from kicad2ems.api.solver import plot_convergence
         tol_db, tol_deg = run.s.converge_tol
         dev = compare_levels([S_ for _, S_ in p.coarse] + [res.S], res.names) + [{}]    # finest: the reference
         lines, ok = verdict([f for f, _ in p.levels], dev[:-1], tol_db, tol_deg)

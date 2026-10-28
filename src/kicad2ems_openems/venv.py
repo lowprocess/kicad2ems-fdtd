@@ -28,7 +28,7 @@ def activate(path=None):
     if path is None:
         if _done is not None:
             return _done or None
-        from kicad2ems import sitecfg
+        from kicad2ems.api.solver import sitecfg
         path = sitecfg.get('openems_venv')
         if not path:
             _done = ''
