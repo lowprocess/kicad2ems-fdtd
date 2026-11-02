@@ -73,7 +73,7 @@ def check():
                          f"(python -m pip install <kicad2ems folder>) or use: python -m kicad2ems ...")
     elif exe:
         try:
-            with open(exe) as fh:
+            with open(exe, encoding='utf-8') as fh:
                 first = fh.readline().strip()
         except (OSError, UnicodeDecodeError):
             first = ''
@@ -87,7 +87,7 @@ def check():
     if not ok and in_venv:
         cfg = os.path.join(sys.prefix, 'pyvenv.cfg')
         try:
-            sysite = 'include-system-site-packages = true' in open(cfg).read().replace('True', 'true')
+            sysite = 'include-system-site-packages = true' in open(cfg, encoding='utf-8').read().replace('True', 'true')
         except OSError:
             sysite = True
         if not sysite and not windows:

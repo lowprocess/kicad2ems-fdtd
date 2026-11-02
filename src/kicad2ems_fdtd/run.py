@@ -12,7 +12,7 @@ from .model import build_fdtd, pulse_time
 def _times(fn, n=None):
     """First column of an openEMS text probe file (comment lines start with %); the first n values, or all."""
     out = []
-    with open(fn) as fh:
+    with open(fn, encoding='utf-8') as fh:
         for line in fh:
             if line.strip() and not line.startswith('%'):
                 out.append(float(line.split()[0]))
@@ -122,7 +122,7 @@ class PortWatch:
         while not self._stop.wait(self.interval):
             if stop.requested():                                # the GUI's Stop (stop.py)
                 self.fired = dict(reason='stop')
-                open(os.path.join(self.path, 'ABORT'), 'w').close()
+                open(os.path.join(self.path, 'ABORT'), 'w', encoding='utf-8').close()
                 return
             try:
                 lv = self.level()
@@ -132,9 +132,9 @@ class PortWatch:
             if lv and lv[0] > self.t_min + self.window and lv[1] <= self.end_db and (self.stalled() or lv[1] <= DEAD_DB):
                 self.fired = dict(reason='ports', t_ns=lv[0] * 1e9, level_db=lv[1],
                                   energy_db=self.energy[-1][1] if self.energy else None)
-                with open(os.path.join(self.path, 'run_end.json'), 'w') as fh:
+                with open(os.path.join(self.path, 'run_end.json'), 'w', encoding='utf-8') as fh:
                     json.dump(self.fired, fh)
-                open(os.path.join(self.path, 'ABORT'), 'w').close()
+                open(os.path.join(self.path, 'ABORT'), 'w', encoding='utf-8').close()
                 return
 
 
@@ -212,7 +212,7 @@ def execute(FDTD, path, threads=0, verbose=1, progress=None, watch=None):
             FDTD.Run(path, cleanup=True, numThreads=threads, verbose=verbose)
         elif getattr(FDTD, 'writes_log', False):                 # gfdtd: its output to the log itself (runs in
             log = log_path(path)                                    # threads share the process's stdout)
-            open(log, 'w').close()
+            open(log, 'w', encoding='utf-8').close()
             mon = None
             if progress['mode'] in ('bar', 'raw'):
                 tr = Tracker(progress['label'], progress['end_db'], progress['max_steps'])
@@ -225,7 +225,7 @@ def execute(FDTD, path, threads=0, verbose=1, progress=None, watch=None):
                     mon.stop()
         else:
             log = log_path(path)
-            open(log, 'w').close()
+            open(log, 'w', encoding='utf-8').close()
             with redirect_output(log) as terminal:
                 mon = None
                 if progress['mode'] in ('bar', 'raw'):
@@ -360,7 +360,7 @@ def run_excitations(m, mesh, freq, excite, bc, out_dir, end_db=-40, sigma=None, 
         log(f"  {name} done in {seconds:.0f} s" + (f", ~{steps} timesteps" if steps else ''))
         end = os.path.join(run_dir(m, k, out_dir, engine), 'run_end.json')
         if os.path.exists(end):
-            with open(end) as fh:
+            with open(end, encoding='utf-8') as fh:
                 res.ended[name] = json.load(fh)
             log(f"  {name}: stopped when the port signals had decayed by {-res.ended[name]['level_db']:.1f} dB "
                 f"(at {res.ended[name]['t_ns']:.2f} ns; the field energy had not reached --end-db)")
@@ -386,7 +386,7 @@ def run_excitations(m, mesh, freq, excite, bc, out_dir, end_db=-40, sigma=None, 
     if progress is not None:
         for t in tasks:                                             # fresh logs, so the monitor never reads old ones
             os.makedirs(run_dir(m, t['k'], out_dir, engine), exist_ok=True)
-            open(log_path(run_dir(m, t['k'], out_dir, engine)), 'w').close()
+            open(log_path(run_dir(m, t['k'], out_dir, engine)), 'w', encoding='utf-8').close()
         mon = Monitor([(m.ports[t['k']].name, log_path(run_dir(m, t['k'], out_dir, engine)),
                         Tracker(m.ports[t['k']].name, end_db, max_steps)) for t in tasks], progress['mode'],
                       on_status=progress.get('on_status')).start()
