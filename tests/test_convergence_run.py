@@ -17,6 +17,6 @@ def test_converge_run(demo_files, run_cli, tmp_path, monkeypatch):
                             '--solvers', 'openems')
     assert code == 0, so + err
     assert (out / 'demo_converge.png').exists()
-    sm = json.loads((out / 'demo_run.json').read_text())
+    sm = json.loads((out / 'demo_run.json').read_text(encoding='utf-8'))
     assert sm['convergence']['converged'] and [lv['factor'] for lv in sm['convergence']['levels']] == [1, 1.2]
-    assert "id='convergence'" in (out / 'demo_report.html').read_text()
+    assert "id='convergence'" in (out / 'demo_report.html').read_text(encoding='utf-8')

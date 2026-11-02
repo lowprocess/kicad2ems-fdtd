@@ -7,7 +7,7 @@ def _env(tmp_path, version):
     d = tmp_path / 'venv' / 'lib' / f'python{version}' / 'site-packages'
     d.mkdir(parents=True)
     (tmp_path / 'venv' / 'bin').mkdir()
-    (tmp_path / 'venv' / 'bin' / 'python').write_text('')
+    (tmp_path / 'venv' / 'bin' / 'python').write_text('', encoding='utf-8')
     return tmp_path / 'venv', d
 
 
@@ -50,14 +50,14 @@ def test_windows_layout(tmp_path):
     v = tmp_path / 'venv'
     (v / 'Lib' / 'site-packages').mkdir(parents=True)
     (v / 'Scripts').mkdir()
-    (v / 'Scripts' / 'python.exe').write_text('')
-    (v / 'pyvenv.cfg').write_text('home = C:\\Python313\nversion = 3.13.1\n')
+    (v / 'Scripts' / 'python.exe').write_text('', encoding='utf-8')
+    (v / 'pyvenv.cfg').write_text('home = C:\\Python313\nversion = 3.13.1\n', encoding='utf-8')
     site = str(v / 'Lib' / 'site-packages')
     assert venv.site_dirs(str(v)) == [('3.13', site)] == venv.site_dirs(str(v / 'Scripts' / 'python.exe'))
     p = tmp_path / 'Python312'
     (p / 'Lib' / 'site-packages').mkdir(parents=True)
-    (p / 'python312.dll').write_text('')
-    (p / 'python.exe').write_text('')
+    (p / 'python312.dll').write_text('', encoding='utf-8')
+    (p / 'python.exe').write_text('', encoding='utf-8')
     assert venv.site_dirs(str(p / 'python.exe')) == [('3.12', str(p / 'Lib' / 'site-packages'))]
     assert venv.site_dirs(str(tmp_path / 'nothing')) == []
 
@@ -72,8 +72,8 @@ def test_dll_dirs(tmp_path, monkeypatch):
     monkeypatch.setattr(sys, 'platform', 'win32')
     monkeypatch.setattr(os, 'add_dll_directory', added.append, raising=False)
     (tmp_path / 'bin').mkdir()
-    (tmp_path / 'bin' / 'openEMS.dll').write_text('')
-    (tmp_path / 'CSXCAD.dll').write_text('')
+    (tmp_path / 'bin' / 'openEMS.dll').write_text('', encoding='utf-8')
+    (tmp_path / 'CSXCAD.dll').write_text('', encoding='utf-8')
     (tmp_path / 'empty').mkdir()
     assert venv.dll_dirs([str(tmp_path), str(tmp_path / 'empty'), None]) == [str(tmp_path / 'bin'), str(tmp_path)]
     assert added == [str(tmp_path / 'bin'), str(tmp_path)]

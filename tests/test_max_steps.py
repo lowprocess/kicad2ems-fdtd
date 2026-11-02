@@ -15,8 +15,8 @@ def test_pulse_steps():
 
 def _run_folder(path, dt, steps, every=60):
     path.mkdir()
-    (path / 'et').write_text("".join(f"{i * dt:.6e}\t0\n" for i in range(50)))
-    (path / 'port_ut_1').write_text("% probe\n" + "".join(f"{i * dt:.9e}\t0\n" for i in range(0, steps, every)))
+    (path / 'et').write_text("".join(f"{i * dt:.6e}\t0\n" for i in range(50)), encoding='utf-8')
+    (path / 'port_ut_1').write_text("% probe\n" + "".join(f"{i * dt:.9e}\t0\n" for i in range(0, steps, every)), encoding='utf-8')
 
 
 def test_steps_taken_and_warning(tmp_path):
@@ -33,6 +33,6 @@ def test_cli_and_toml(tmp_path):
     assert settings_from_argv(['b.kicad_pcb'])[0].max_steps == 1_000_000
     assert settings_from_argv(['b.kicad_pcb', '--max-steps', '5000000'])[0].max_steps == 5_000_000
     cfg = tmp_path / 'c.toml'
-    cfg.write_text('[solver.openems]\nmax-steps = 3000000\n')
+    cfg.write_text('[solver.openems]\nmax-steps = 3000000\n', encoding='utf-8')
     s, _ = settings_from_argv(['b.kicad_pcb', '--config', str(cfg)])
     assert s.notes == [] and s.max_steps == 3_000_000

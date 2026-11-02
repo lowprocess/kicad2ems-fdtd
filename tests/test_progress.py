@@ -36,7 +36,7 @@ def test_eta_from_decay_and_step_limit():
 
 def test_monitor_bar_and_raw(tmp_path):
     log = tmp_path / 'openems.log'
-    log.write_text(LINE + "\n")
+    log.write_text(LINE + "\n", encoding='utf-8')
     r, w = os.pipe()
     tr = Tracker('P1', -40, 1_000_000)
     mon = Monitor([('P1', str(log), tr)], 'bar', out_fd=w, interval=0.01).start()
@@ -58,7 +58,7 @@ def test_redirect_output(tmp_path, capfd):
         os.write(1, b"from the solver\n")                             # what C / C++ code writes to stdout
         os.write(2, b"solver warning\n")
         os.write(terminal, b"to the terminal\n")
-    assert log.read_text() == "from the solver\nsolver warning\n"
+    assert log.read_text(encoding='utf-8') == "from the solver\nsolver warning\n"
     assert 'to the terminal' in capfd.readouterr().out
 
 
@@ -68,7 +68,7 @@ def test_status_events_reach_the_events_file(tmp_path):
     from kicad2ems.config import Settings
     from kicad2ems.pipeline import Job
     log = tmp_path / 'openems.log'
-    log.write_text(LINE + "\n")
+    log.write_text(LINE + "\n", encoding='utf-8')
     from kicad2ems.events import EventSink
     job = Job(Settings(board='b.kicad_pcb', out=str(tmp_path)), echo=lambda *a: None)
     job.events = EventSink(str(tmp_path / 'ev.jsonl'))                  # what Job.run() opens with --events
@@ -76,6 +76,6 @@ def test_status_events_reach_the_events_file(tmp_path):
     Monitor([('P1', str(log), Tracker('P1'))], 'bar', out_fd=w, interval=0.01, on_status=job.status).start().stop()
     os.close(w)
     job.events.close()
-    ev = [json.loads(l) for l in (tmp_path / 'ev.jsonl').read_text().splitlines()]
+    ev = [json.loads(l) for l in (tmp_path / 'ev.jsonl').read_text(encoding='utf-8').splitlines()]
     st = [e for e in ev if e['kind'] == 'status']
     assert st and st[0]['run'] == 'P1' and st[0]['step'] == 265424 and st[0]['run_time'] == 92.0 and 't' in st[0]

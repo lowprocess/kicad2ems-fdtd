@@ -26,11 +26,11 @@ def test_sparams_run_with_fast_model(demo_files, run_cli, tmp_path, no_openems):
     for f in ('demo_openems.s2p', 'demo_scikit.s2p', 'demo_openems.png', 'demo_tlines.png', 'demo_report.html',
               'demo_run.json'):
         assert (out / f).exists(), f
-    sm = json.loads((out / 'demo_run.json').read_text())
+    sm = json.loads((out / 'demo_run.json').read_text(encoding='utf-8'))
     assert sm['mode'] == 'S-parameters' and sm['ports'] == ['P1', 'P2'] and sm['excited'] == ['P1', 'P2']
     cmp = {r['param']: r for r in sm['solved']['scikit']['compare']}
     assert abs(cmp['S(P2,P1)']['max_ddb']) < 1.5 and cmp['S(P2,P1)']['ddelay_ps'] is not None
-    page = (out / 'demo_report.html').read_text()
+    page = (out / 'demo_report.html').read_text(encoding='utf-8')
     for part in ("id='results'", "id='scikit'", "id='tlines'", 'line model', 'Δ delay'):
         assert part in page, part
 
@@ -60,9 +60,9 @@ def test_antenna_run(boards, run_cli, tmp_path, monkeypatch):
     assert code == 0, err
     for f in ('patch_antenna.png', 'patch_pattern.png', 'patch_antenna.json', 'patch_report.html'):
         assert (out / f).exists(), f
-    sm = json.loads((out / 'patch_run.json').read_text())
+    sm = json.loads((out / 'patch_run.json').read_text(encoding='utf-8'))
     assert sm['antenna']['f_pattern'] == 2.45e9 and 'sphere' not in sm['antenna']
-    assert "id='antenna'" in (out / 'patch_report.html').read_text()
+    assert "id='antenna'" in (out / 'patch_report.html').read_text(encoding='utf-8')
 
 
 def test_touchstone_says_what_was_not_computed(demo_files, run_cli, tmp_path, no_openems):
@@ -77,5 +77,5 @@ def test_touchstone_says_what_was_not_computed(demo_files, run_cli, tmp_path, no
     code, so, err = run_cli(base + '.kicad_pcb', '--pos', base + '-top.pos', '--nets', 'RF,GND', '--ground', 'B.Cu',
                             '--fmin', '1', '--fmax', '8', '--points', '21', '--out', out, '--excite', 'P1', '--solvers', 'openems')
     assert code == 0, err
-    head = (out / 'demo_openems.s2p').read_text().splitlines()[0]
+    head = (out / 'demo_openems.s2p').read_text(encoding='utf-8').splitlines()[0]
     assert head.endswith('not computed (written as 0): S(P2,P2)'), head

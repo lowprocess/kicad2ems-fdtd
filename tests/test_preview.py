@@ -28,16 +28,16 @@ def test_preview_report_and_summary(demo_files, run_cli, tmp_path):
     assert code == 0, err
     assert 'mesh:' in so and 'zmin=PEC' in so and 'transmission line P1 -> P2' in so
     assert (out / 'demo_mesh.png').stat().st_size > 10000 and (out / 'demo_tlines.png').exists()
-    page = (out / 'demo_report.html').read_text()
+    page = (out / 'demo_report.html').read_text(encoding='utf-8')
     for part in ("id='summary'", "id='model'", "id='tlines'", "id='mesh'", 'data:image/png;base64,', 'P1',
                  'dielectric 1', 'microstrip', 'stripline'):
         assert part in page, part
     assert "id='openems'" not in page and "id='mom25d'" not in page   # no full-wave solve in a preview (auto: the line model)
-    sm = json.loads((out / 'demo_run.json').read_text())
+    sm = json.loads((out / 'demo_run.json').read_text(encoding='utf-8'))
     assert sm['mode'] == 'preview' and sm['lines']['paths'][0]['port'] == 'P1'
     from kicad2ems.report import build                         # the report rebuilds from the JSON alone
     assert "id='tlines'" in build(sm, str(out))
-    kinds = [json.loads(l)['kind'] for l in (tmp_path / 'ev.jsonl').read_text().splitlines()]
+    kinds = [json.loads(l)['kind'] for l in (tmp_path / 'ev.jsonl').read_text(encoding='utf-8').splitlines()]
     assert 'stage' in kinds and 'log' in kinds and 'file' in kinds and kinds[-1] == 'done'
     code, _, _ = run_cli(base + '.kicad_pcb', '--pos', base + '-top.pos', '--nets', 'RF,GND', '--ground', 'B.Cu',
                          '--out', tmp_path / 'o2', '--preview', '--no-report')
@@ -63,7 +63,7 @@ def test_preview_logs_and_reports_walls(boards, run_cli, tmp_path):
                             '--fmax', '6', '--edge-walls', 'all', '--out', out, '--preview')
     assert code == 0, err
     assert 'edge walls: xmin 1 piece' in so
-    assert 'edge walls (PEC)' in (out / 'launch_report.html').read_text()
+    assert 'edge walls (PEC)' in (out / 'launch_report.html').read_text(encoding='utf-8')
 
 
 def test_walls_and_vias_sit_on_mesh_lines(launch, boards):

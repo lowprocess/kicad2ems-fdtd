@@ -7,14 +7,14 @@ from kicad2ems.config import build_settings, ConfigError
 
 def test_converge_from_a_config(tmp_path):
     p = tmp_path / 'c.toml'
-    p.write_text('board = "b.kicad_pcb"\nconverge = "1,1.5"\nconverge_tol = [0.2, 3]\n')
+    p.write_text('board = "b.kicad_pcb"\nconverge = "1,1.5"\nconverge_tol = [0.2, 3]\n', encoding='utf-8')
     s, _ = settings_from_argv([str(p)])
     assert s.converge == [1.0, 1.5] and s.converge_tol == (0.2, 3.0)
 
 
 def test_empty_converge_means_off(tmp_path):
     p = tmp_path / 'c.toml'
-    p.write_text('board = "b.kicad_pcb"\nconverge = []\n')
+    p.write_text('board = "b.kicad_pcb"\nconverge = []\n', encoding='utf-8')
     assert build_settings({}, str(p)).converge is None
 
 
