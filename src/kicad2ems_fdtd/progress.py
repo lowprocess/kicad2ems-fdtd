@@ -204,6 +204,19 @@ class Monitor:
         self.render(final=True)
 
 
+def flush_c_stdio():
+    """fflush(NULL): every C stdio stream of this process. Linux and macOS: the C library this process links;
+    Windows: the Universal CRT (ucrtbase), whose streams Python and an MSVC-built openEMS share."""
+    try:
+        import ctypes
+        if sys.platform == 'win32':
+            ctypes.CDLL('ucrtbase').fflush(None)
+        else:
+            ctypes.CDLL(None).fflush(None)
+    except (OSError, AttributeError, TypeError):
+        pass
+
+
 @contextlib.contextmanager
 def redirect_output(path):
     """Send this process's stdout and stderr file descriptors (C / C++ output included) to `path`
@@ -217,11 +230,7 @@ def redirect_output(path):
     try:
         yield saved_out
     finally:
-        try:
-            import ctypes
-            ctypes.CDLL(None).fflush(None)                           # C stdio buffers (std::cout) first
-        except (OSError, AttributeError, TypeError):
-            pass
+        flush_c_stdio()                                             # C stdio buffers (std::cout) first
         sys.stdout.flush()
         sys.stderr.flush()
         os.dup2(saved_out, 1)

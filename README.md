@@ -31,6 +31,10 @@ openEMS and CSXCAD are not on PyPI: install them from your distribution or build
 kicad2ems's README). Without them the `openems` solver still loads and `kicad2ems --check` says what is
 missing; without gfdtd, `gfdtd` does the same.
 
+On Windows, openEMS's release for Windows brings the DLLs and its Python packages: install the packages into
+kicad2ems's Python (or name the Python that has them in `openems_venv`) and set `openems_dir` to the unpacked folder,
+which puts its DLLs on the DLL search (the job `LD_LIBRARY_PATH` does on Linux).
+
 ## Tests
 
     python -m pytest
