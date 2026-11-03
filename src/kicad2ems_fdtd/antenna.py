@@ -33,7 +33,7 @@ def record_freqs(fmin, fmax, extra=(), n=21):
 
 
 def nf2ff_box(freqs):
-    """Run hook (simulation.run_excitations setup=): an NF2FF box recording at `freqs` (Hz)."""
+    """Run hook (run.run_excitations setup=): an NF2FF box recording at `freqs` (Hz)."""
     return functools.partial(_add_nf2ff, [float(f) for f in freqs])
 
 
@@ -182,7 +182,7 @@ def combine_phased(m, freq, res, a, excite, ff_pattern=None, step=2.0, log=print
 
 
 def run_antenna(m, mesh, freq, k, bc, out_dir, ff_extra=(), ff_pattern=None, step=2.0, log=print, **run_kw):
-    """FDTD run with port k excited and an NF2FF box: simulation.run_excitations with the antenna hooks.
+    """FDTD run with port k excited and an NF2FF box: run.run_excitations with the antenna hooks.
     The excitation reaches 30 % of the band beyond fmax: in the top ~15 % of a Gaussian's band (its -20 dB
     edge) the far field came out wrong (dipole: 6.3 dBi and 107 % efficiency at fmax). Returns the
     RunResult; RunResult.extra[port name] holds the antenna results."""
