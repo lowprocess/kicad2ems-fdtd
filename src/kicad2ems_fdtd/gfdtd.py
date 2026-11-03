@@ -1,6 +1,6 @@
 """
 gfdtd as a kicad2ems solver plugin and FDTD engine (engines.py): the FDTD model (plugin.py) solved by gfdtd's
-engine (GPU via CuPy, its compiled CPU core, or numpy) through its CSXCAD / openEMS interface. The board, the mesh (--res, --fine, --nz, ...), the
+engine (the GPU via CuPy or Vulkan, its compiled CPU core, or numpy) through its CSXCAD / openEMS interface. The board, the mesh (--res, --fine, --nz, ...), the
 ports, the parts and the end criteria are the FDTD settings shared with openEMS; only the engine differs. Runs go
 to <out>/gfdtd/exc_<port>, the CSX file to <name>_gfdtd.xml (also runnable with `python -m gfdtd`), the antenna
 results to <name>_gfdtd_antenna.json.
@@ -16,8 +16,10 @@ G = 'gfdtd'                                     # its section in kicad2ems's GUI
 ENGINE_API = (1, 0)                             # the gfdtd API this connection is written against (gfdtd.API_VERSION)
 # gfdtd's speed over openEMS's estimate (24 threads), per backend: the examples' runs on an RX 7800 XT and an
 # i7-13700K, 8-70x on the GPU and 2-2.3x on the core (docs/gfdtd.md#speed); numpy ~10x slower than openEMS.
-# START: seconds of setup a run (CuPy's kernels, the core's threads)
-SPEEDUP, START = dict(cupy=8.0, core=2.0, numpy=0.1), 2.0
+# Vulkan runs the same kernels within a few per cent of CuPy's speed there. START: seconds of setup a run (the GPU
+# kernels, the core's threads)
+SPEEDUP, START = dict(cupy=8.0, vulkan=8.0, core=2.0, numpy=0.1), 2.0
+GPU_BACKENDS = ('cupy', 'vulkan')
 
 
 class GFDTD(FDTD):
@@ -33,8 +35,9 @@ class GFDTD(FDTD):
                         dispersion='yes: fitted at mid-band, or wideband Debye',
                         antenna='yes (a phased drive: a run per driven port)')
     options = MESH + RUN + [
-        Option('gfdtd_backend', 'auto', "gfdtd: where it runs - auto (the GPU when CuPy finds one, else the CPU), gpu "
-               "(CuPy: CUDA or ROCm) or cpu (the compiled core: python -m gfdtd.core.build; else numpy, slow); its "
+        Option('gfdtd_backend', 'auto', "gfdtd: where it runs - auto (the GPU when Vulkan or CuPy finds one, else the "
+               "CPU), gpu (Vulkan through slangpy, else CuPy; CuPy first on NVIDIA CUDA) or cpu (the compiled core: "
+               "python -m gfdtd.core.build; else numpy, slow); GFDTD_BACKEND=cupy|vulkan picks the GPU's; its "
                "mesh and run settings are the FDTD ones shared with openEMS (--res, --end-db, ...)", choices=('auto', 'gpu', 'cpu'), name='backend', gui='Runs on', group=G),
     ]
 
@@ -51,18 +54,28 @@ class GFDTD(FDTD):
         if want == 'gpu' and not gpu:
             return False, f"gfdtd_backend = gpu: {what}"
         if gpu and want != 'cpu':
-            return True, f"GPU: {what}"
+            from gfdtd.engine import backend_info, resolve_backend
+            return True, f"GPU: {backend_info(resolve_backend('gpu'))}"
         core, cwhat = core_info()
         return True, f"CPU: {cwhat if core else 'numpy (slow; build the core: python -m gfdtd.core.build)'}" + (
             '' if gpu else f"; {what}")
 
     def resources(self):
-        """The GPU gfdtd's engine would run on (CuPy's first device), or why there is none."""
+        """The GPU gfdtd's engine would run on (the best Vulkan GPU, else CuPy's first device;
+        CuPy's first on CUDA), or why there is
+        none."""
         from emsdev import gpu
+        from gfdtd.engine import gpu_backend, gpu_info
         try:
-            return dict(gpus=[gpu.cupy_device(0).as_dict()], why='')
+            b = gpu_backend()
+            if b == 'cupy':
+                return dict(gpus=[gpu.cupy_device(0).as_dict()], why='')
+            if b == 'vulkan':
+                from gfdtd.engine import VULKAN_NEEDS
+                return dict(gpus=[gpu.vulkan_device(need=VULKAN_NEEDS).as_dict()], why='')
         except gpu.Unavailable as e:
             return dict(gpus=[], why=str(e))
+        return dict(gpus=[], why=gpu_info()[1])
 
     def details(self):
         ok, what = self.check()
@@ -89,7 +102,8 @@ class GFDTD(FDTD):
         e = super().estimate(run)
         where = resolve_backend(self.engine(run.s).partition(':')[2])
         return dict(e, seconds=e['seconds'] / SPEEDUP[where] + START,
-                    what=e['what'] + {'cupy': ' on the GPU', 'core': ' on the CPU core'}.get(where, ' in numpy'))
+                    what=e['what'] + {'cupy': ' on the GPU', 'vulkan': ' on the GPU (Vulkan)',
+                                      'core': ' on the CPU core'}.get(where, ' in numpy'))
 
     def jobs(self, run, p):
         """Runs at once: --jobs when given; on the GPU as many as its cache holds (engine.concurrent_runs), on the
@@ -98,12 +112,12 @@ class GFDTD(FDTD):
         s = run.s
         if s.jobs > 1:
             return s.jobs
-        if resolve_backend(self.engine(s).partition(':')[2]) != 'cupy':
+        if resolve_backend(self.engine(s).partition(':')[2]) not in GPU_BACKENDS:
             return 1
         return concurrent_runs(p.grid['info']['cells'], len(p.excite))
 
     def engine(self, s):
-        return 'gfdtd:' + {'gpu': 'cupy'}.get(s.gfdtd_backend, s.gfdtd_backend)       # cpu: the core, else numpy
+        return 'gfdtd:' + s.gfdtd_backend           # gpu: Vulkan's, else CuPy's; cpu: the core, else numpy
 
     def about(self, s):
         return f"gfdtd, 3D FDTD ({s.gfdtd_backend})"
@@ -140,8 +154,8 @@ def engine_compatible():
 
 
 def api(backend=''):
-    """(ContinuousStructure, openEMS) of gfdtd's engine (engines.py) on a backend: cupy, core, numpy or
-    auto. Refuses a gfdtd of another engine API (engine_compatible)."""
+    """(ContinuousStructure, openEMS) of gfdtd's engine (engines.py) on a backend: gpu, cupy, vulkan, core, numpy
+    or auto. Refuses a gfdtd of another engine API (engine_compatible)."""
     import functools
     import gfdtd
     why = engine_compatible()
