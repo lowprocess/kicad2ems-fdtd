@@ -1,7 +1,8 @@
 """
 The FDTD model: the board and its mesh as CSX geometry (dielectrics, copper sheets, via cylinders, parts),
 lumped ports, the Gaussian excitation and the boundaries, built through openEMS's Python interface
-(ContinuousStructure, openEMS) of whichever engine runs it (engines.py).
+(ContinuousStructure, openEMS) of whichever engine runs it (engines.py). With the mesh's copper thickness plan
+(--thickness on, thick.py) the copper is solid and the stack moved to make room for it.
 """
 import math
 import numpy as np
@@ -22,8 +23,9 @@ def _fl(v):
 
 
 def build_fdtd(m, mesh, fmin, fmax, excite, bc=('MUR',) * 6, end_db=-40, sigma=None, max_steps=1_000_000,
-               dumps=(), diel='fixed', diel_fref=1e9, exc_fmax=None, api=None):
-    """diel: 'fixed' (loss as a conductivity fitted at the band centre) or 'wideband' (Djordjevic-Sarkar
+               dumps=(), diel='fixed', diel_fref=1e9, exc_fmax=None, api=None, rough=None):
+    """sigma: copper conductivity (conducting sheets; None: PEC). rough: um RMS, the sheets' own roughness (an
+    engine with it: gfdtd 1.2; None: smooth). diel: 'fixed' (loss as a conductivity fitted at the band centre) or 'wideband' (Djordjevic-Sarkar
     model matched at diel_fref Hz, as Debye poles; see dielectric.py). exc_fmax: upper edge of the
     Gaussian excitation (default fmax; antenna runs extend it, see antenna.py). api: (ContinuousStructure,
     openEMS) classes to build with (engines.engine_api; None: the default engine; readback.py records the
@@ -58,6 +60,12 @@ def build_fdtd(m, mesh, fmin, fmax, excite, bc=('MUR',) * 6, end_db=-40, sigma=N
         return s, e
     ox, oy = m.outline.exterior.xy
     pts = [np.asarray(ox[:-1], float), np.asarray(oy[:-1], float)]
+    th = mesh.get('thick')                                          # copper thickness (thick.py), None: sheets
+    if th:
+        from . import thick
+        zm = lambda z: thick.z_map(m, th, z)
+    else:
+        zm = lambda z: z
     for l in m.layers:
         name = l['name'].replace(' ', '_')
         if diel == 'wideband' and l['tand'] > 0:
@@ -65,35 +73,62 @@ def build_fdtd(m, mesh, fmin, fmax, excite, bc=('MUR',) * 6, end_db=-40, sigma=N
         else:                                                       # loss at the centre frequency
             kappa = _f(2 * np.pi * f0 * EPS0 * l['er'] * l['tand'])
             mat = CSX.AddMaterial(name, epsilon=_f(l['er']), kappa=kappa)
-        mat.AddLinPoly(pts, 'z', _f(l['z0']), _f(l['z1'] - l['z0']), priority=1)
+        z0, z1 = zm(l['z0']), zm(l['z1'])
+        mat.AddLinPoly(pts, 'z', _f(z0), _f(z1 - z0), priority=1)
     for lay, ps in m.copper.items():
-        if sigma:
-            metal = CSX.AddConductingSheet(f"cu_{lay}", conductivity=_f(sigma), thickness=_f(m.cu_t[lay] * 1e-3))
+        t = m.cu_t.get(lay, 0.0)
+        slab = thick.faces(m, th, lay) if th and t > 0 else None
+        body = None
+        rkw = dict(roughness=_f(rough * 1e-6)) if rough else {}
+        if slab:                                                    # solid copper: PEC; with sigma its faces lossy
+            body = CSX.AddMetal(f"cu_{lay}_body") if sigma else CSX.AddMetal(f"cu_{lay}")
+            if sigma:                                               # one side of a conductor t / 2 thick each
+                metal = CSX.AddConductingSheet(f"cu_{lay}", conductivity=_f(sigma / 4), thickness=_f(2 * t * 1e-3),
+                                               **rkw)
+        elif sigma:
+            metal = CSX.AddConductingSheet(f"cu_{lay}", conductivity=_f(sigma), thickness=_f(t * 1e-3), **rkw)
         else:
             metal = CSX.AddMetal(f"cu_{lay}")
         for p in ps:
             for q in split_holes(p):
                 x, y = q.exterior.xy
-                metal.AddPolygon([np.asarray(x[:-1], float), np.asarray(y[:-1], float)], 'z', _f(m.cu_z[lay]),
-                                 priority=10)
+                xy = [np.asarray(x[:-1], float), np.asarray(y[:-1], float)]
+                if not slab:
+                    metal.AddPolygon(xy, 'z', _f(zm(m.cu_z[lay])), priority=10)
+                    continue
+                body.AddLinPoly(xy, 'z', _f(slab[0]), _f(slab[1] - slab[0]), priority=9 if sigma else 10)
+                if sigma:
+                    for zf in slab:
+                        metal.AddPolygon(xy, 'z', _f(zf), priority=10)
+    over = (lambda z0, z1: thick.span(m, th, z0, z1)) if th else (lambda z0, z1: tuple(sorted((z0, z1))))
+    across = (lambda z: thick.slab(m, th, z)) if th else (lambda z: (z, z))
     vias = mesh.get('vias', m.vias)                                 # as placed by the mesher (snapped)
     if vias:
         vm = CSX.AddMetal('vias')
         for (x, y, r, z0, z1) in vias:
+            z0, z1 = over(z0, z1)
             vm.AddCylinder(_fl([x, y, z0]), _fl([x, y, z1]), _f(r), priority=11)
     walls = mesh.get('walls') or []                                # --edge-walls: PEC sheets where the planes end
     if walls:
         wm = CSX.AddMetal('edge_walls')
         for axis, c, t0, t1, z0, z1 in walls:
+            z0, z1 = over(z0, z1)
             s, e = ([c, t0, z0], [c, t1, z1]) if axis == 'x' else ([t0, c, z0], [t1, c, z1])
             wm.AddBox(_fl(s), _fl(e), priority=11)
+
+    def flat(s, e):
+        """A flat part / gap port on a copper level: across that layer's slab (thick copper)."""
+        s, e = np.array(s, float), np.array(e, float)
+        if th and abs(s[2] - e[2]) < 1e-9:
+            s[2], e[2] = across(s[2])
+        return s, e
     for pt in getattr(m, 'parts', []):                              # lumped R / L / C between two pads
-        s, e = pt.box()
+        s, e = flat(*pt.box())
         if pt.short:
             CSX.AddMetal(f"part_{pt.ref}").AddBox(_fl(s), _fl(e), priority=12)
             continue
         for suffix, vals, series, ps, pe in pt.pieces():
-            ps, pe = on_mesh(ps, pe)
+            ps, pe = on_mesh(*flat(ps, pe))
             kw = {k: _f(v) for k, v in vals.items()}
             if series:
                 kw['LEtype'] = 1
@@ -105,7 +140,14 @@ def build_fdtd(m, mesh, fmin, fmax, excite, bc=('MUR',) * 6, end_db=-40, sigma=N
             el.AddBox(_fl(ps), _fl(pe), priority=12)
     ports = []
     for i, p in enumerate(m.ports):
-        s, e = on_mesh(*p.box())
+        s, e = p.box()
+        if th:
+            s, e = np.array(s, float), np.array(e, float)
+            if abs(s[2] - e[2]) < 1e-9:                             # a gap port: across the slab
+                s, e = flat(s, e)
+            else:                                                   # from face to face, toward each other
+                s[2], e[2] = thick.toward(m, th, s[2], e[2]), thick.toward(m, th, e[2], s[2])
+        s, e = on_mesh(s, e)
         ports.append(FDTD.AddLumpedPort(i + 1, _f(p.z0), _fl(s), _fl(e), getattr(p, 'direction', 'z'),
                                         excite=1.0 if i == excite else 0.0, priority=12))
     if dumps:

@@ -73,10 +73,10 @@ class _FDTD:
         return object()
 
 
-def readback(m, mesh, bc, sigma=None):
+def readback(m, mesh, bc, sigma=None, rough=None):
     """The board as build_fdtd hands it to CSXCAD (see the module)."""
     from .model import build_fdtd
-    FDTD, CSX, _ = build_fdtd(m, mesh, 1e9, 2e9, 0, bc=bc, sigma=sigma, api=(_CSX, _FDTD))
+    FDTD, CSX, _ = build_fdtd(m, mesh, 1e9, 2e9, 0, bc=bc, sigma=sigma, rough=rough, api=(_CSX, _FDTD))
     out = dict(vias=[], walls=[], copper={}, parts={}, ports=[m.ports[n - 1].name for n in FDTD.ports])
     for rec in CSX.log:
         name, kind = rec[0], rec[1]

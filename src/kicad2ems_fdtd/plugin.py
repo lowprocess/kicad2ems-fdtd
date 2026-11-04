@@ -78,6 +78,10 @@ MESH = [
            "+-radius; centre = one line per axis; snap = move onto existing lines (within --via-snap)",
            choices=('auto', 'exact', 'centre', 'snap'), group=G_MESH),
     Option('via_snap', 0.2, "mm a snapped via may move (default {default})", float, group=G_MESH),
+    Option('thickness', 'off', "copper thickness: on = each copper layer solid, its stackup thickness, the stack above "
+           "moved up to make room (each dielectric keeps its thickness, as in the line model); with --sigma its two "
+           "faces carry the loss. off (default) = zero-thickness sheets. On costs z lines at both faces and a "
+           "shorter time step (the copper's cell)", choices=('off', 'on'), gui='Copper thickness', group=G_MESH),
 ]
 RUN = [
     Option('bc', 'auto', "boundaries: auto (PEC on a solid bottom plane, MUR elsewhere), MUR, PML_8 (any PML_n), "
@@ -147,12 +151,26 @@ class FDTD(Solver):
     capabilities = dict(ports='yes', gap_ports='yes', diff_pairs='yes',
                         parts='approximated: parts with ESR / ESL split in two elements (openEMS 0.37)',
                         vias='approximated: off the signal nets moved onto mesh lines (--vias, --via-snap)',
-                        outline='yes', planes='yes', edge_walls='yes: PEC sheets', thickness='ignored: conducting sheets',
-                        conductor_loss='yes', dispersion='yes: fitted at mid-band, or wideband Debye', radiation='yes',
+                        outline='yes', planes='yes', edge_walls='yes: PEC sheets',
+                        thickness='approximated: zero-thickness sheets; --thickness on: solid copper, the stack moved',
+                        conductor_loss='yes', roughness='approximated: its conductivity at the band centre (Hammerstad)',
+                        dispersion='yes: fitted at mid-band, or wideband Debye', radiation='yes',
                         cavity='yes', antenna='yes')
     options = MESH + RUN
     tag = ''
     conductor_loss = True           # --sigma as conducting sheets (False: PEC copper)
+    roughness = False               # --rough as the sheets' own (gfdtd 1.2), else at the band centre in sigma
+
+    def copper(self, run):
+        """(sigma, rough um RMS) the model's conducting sheets get: (None, None) for PEC copper; --rough as the
+        conductivity at the band centre where the engine has no roughness of its own."""
+        from kicad2ems.api.solver import band_sigma
+        s = run.s
+        if not (self.conductor_loss and s.sigma):
+            return None, None
+        if self.roughness and getattr(s, 'rough', None):
+            return s.sigma, s.rough
+        return band_sigma(s, run.fmin, run.fmax), None
 
     def engine(self, s):
         """The engine string of engines.py ('openems', 'gfdtd:cupy')."""
@@ -187,7 +205,8 @@ class FDTD(Solver):
 
     def readback(self, run, p):
         from .readback import readback
-        return readback(run.m, p.grid, p.bc, sigma=run.s.sigma if self.conductor_loss else None)
+        sigma, rough = self.copper(run)
+        return readback(run.m, p.grid, p.bc, sigma=sigma, rough=rough)
 
     def levels(self, s):
         """Mesh levels solved (--converge: several)."""
@@ -203,7 +222,7 @@ class FDTD(Solver):
         bc = resolve_bc('PML_8' if s.antenna and s.bc == 'auto' else s.bc, m)
         g = auto_mesh(m, run.fmin, run.fmax, res=s.res, fine=s.fine, air=s.air, ratio=s.ratio, nz_min=s.nz, bc=bc,
                       curves=s.curves, vias=s.vias, via_snap=s.via_snap, z_sheet=s.z_sheet, curve_res=s.curve_res,
-                      zone=mesh_zone(s), log=lambda *a: None)
+                      zone=mesh_zone(s), thickness=s.thickness == 'on', log=lambda *a: None)
         cells, dt = g['info']['cells'], g['info']['dt_ps'] * 1e-12
         pulse = pulse_steps(run.fmin, run.fmax, g['info']['dt_ps'])
         tg = _peak_delay(run)
@@ -237,7 +256,8 @@ class FDTD(Solver):
             run.log(f"{who} antenna mode: boundaries {bc}, air margin {air_text(air)}")
         p.bc = resolve_bc(bc, m)
         p.grid = self.mesh(run, p, air=air, ratio=s.ratio, nz_min=s.nz, bc=p.bc, curves=s.curves, vias=s.vias,
-                           via_snap=s.via_snap, z_sheet=s.z_sheet, curve_res=s.curve_res, zone=mesh_zone(s), log=log)
+                           via_snap=s.via_snap, z_sheet=s.z_sheet, curve_res=s.curve_res, zone=mesh_zone(s),
+                           thickness=s.thickness == 'on', log=log)
         if m.walls:
             from kicad2ems.api.solver import describe_edges as describe, snap_edges as snap
             for g in [p.grid] + [lm for _, lm in (p.levels or [])]:
@@ -301,7 +321,11 @@ class FDTD(Solver):
                     f"{n_runs} run(s)")
         jobs = self.jobs(run, p)
         progress = dict(mode='raw' if s.openems_output else 'bar', on_status=run.status if run.events else None)
-        run_kw = dict(end_db=s.end_db, end_on=s.end_on, sigma=s.sigma if self.conductor_loss else None,
+        sigma, rough = self.copper(run)
+        if s.sigma and getattr(s, 'rough', None):
+            run.log(f"{self.label}: --rough {s.rough:g} um " + (f"in its conducting sheets (Hammerstad, over the band)"
+                    if rough else f"as sigma {sigma:.4g} S/m (Hammerstad at the band centre)"))
+        run_kw = dict(end_db=s.end_db, end_on=s.end_on, sigma=sigma, rough=rough,
                       threads=s.threads, diel=s.diel, max_steps=s.max_steps, diel_fref=s.diel_fref * 1e9,
                       progress=progress, log=run.log, engine=self.engine(s))
         self.coarse(run, p, jobs, run_kw)
