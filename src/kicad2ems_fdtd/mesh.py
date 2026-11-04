@@ -6,7 +6,8 @@ Automatic rectilinear mesh for openEMS.
           lines closer than fine/2 merged by priority; graded smoothing (<= ratio growth) up to
           lambda/res in the dielectric and in air
   z     : every interface, >= nz cells per dielectric, copper sheets exactly on lines, air margin
-          (none below a PEC bottom plane), PML cells added only on PML sides
+          (none below a PEC bottom plane), PML cells added only on PML sides; with --thickness on, both faces
+          of each copper layer, the stack moved up to make room (thick.py)
 """
 import numpy as np
 from kicad2ems.api.solver import C0
@@ -284,15 +285,28 @@ def signal_sheets(m, plane=0.85):
     return sorted(out)
 
 
-def _z_lines(m, ext, M_die, M_air, nz_min, ratio, dz_sheet=None):
+def _z_lines(m, ext, M_die, M_air, nz_min, ratio, dz_sheet=None, th=None):
     """z lines: every interface, >= nz_min cells per dielectric, copper sheets exactly on lines, graded
     air (ext[4] below - none on a PEC bottom plane - and ext[5] above). dz_sheet (mm): the first cell either
-    side of each signal sheet (signal_sheets), graded by `ratio` into the dielectric."""
-    zs = sorted({0.0, m.thickness} | {l['z0'] for l in m.layers} | {l['z1'] for l in m.layers} | set(m.cu_z.values()))
-    sheets = signal_sheets(m) if dz_sheet else []
+    side of each signal sheet (signal_sheets), graded by `ratio` into the dielectric. th: copper thickness
+    (thick.plan): the stack moved as thick.py says, lines at both faces of each copper layer and one cell (more
+    only past the dielectric's cell) through each copper slab; dz_sheet then on the outer side of the faces."""
+    from . import thick
+    zt = (lambda z: z) if th is None else (lambda z: round(thick.z_map(m, th, z), 9))
+    layers = [dict(l, z0=zt(l['z0']), z1=zt(l['z1'])) for l in m.layers]
+    top = zt(m.thickness)
+    cu = ({lay: (z, z) for lay, z in m.cu_z.items()} if th is None else
+          {lay: (round(a, 9), round(b, 9)) for lay, (a, b) in thick.all_faces(m, th).items()})
+    slabs = {f for f in cu.values() if f[1] > f[0] + 1e-9}
+    faces = sorted({z for f in cu.values() for z in f})
+    zs = sorted({0.0, top} | {l['z0'] for l in layers} | {l['z1'] for l in layers} | set(faces))
+    sheets = [z for zc in (signal_sheets(m) if dz_sheet else []) for z in cu[thick.layer_at(m, zc)]]
     zl, extra = [], []
     for z0, z1 in zip(zs[:-1], zs[1:]):
-        lay = next((l for l in m.layers if l['z0'] <= z0 + 1e-9 and l['z1'] >= z1 - 1e-9), None)
+        if (z0, z1) in slabs:                                       # a copper slab: one cell, or the dielectric's
+            zl += list(np.linspace(z0, z1, max(1, int(np.ceil((z1 - z0) / M_die))) + 1))
+            continue
+        lay = next((l for l in layers if l['z0'] <= z0 + 1e-9 and l['z1'] >= z1 - 1e-9), None)
         Mz = M_die if lay else M_air
         n = max(nz_min, int(np.ceil((z1 - z0) / Mz)))
         h = (z1 - z0) / n
@@ -304,12 +318,12 @@ def _z_lines(m, ext, M_die, M_air, nz_min, ratio, dz_sheet=None):
         fixed = [z0, z1] + [z0 + dz_sheet if zc == z0 else z1 - dz_sheet for zc in near]
         extra += list(smooth_lines(fixed, h, ratio))
     zl = _merge(np.concatenate([np.round(zl, 9), np.round(extra, 9), zs]), 1e-7)
-    for lay, zc in m.cu_z.items():                                  # snap: sheets must lie exactly on a line
+    for zc in faces:                                                # snap: sheets must lie exactly on a line
         i = np.argmin(np.abs(zl - zc))
-        assert abs(zl[i] - zc) < 1e-6, f"{lay} at z={zc} is not on a z mesh line"
+        assert abs(zl[i] - zc) < 1e-6, f"copper at z={zc} is not on a z mesh line"
         zl[i] = zc
     zfix = np.concatenate([[zl[0] - ext[4]] if ext[4] > 0 else [], zl, [zl[-1] + ext[5]]])
-    return smooth_lines(zfix, lambda z: M_die if 0 <= z <= m.thickness else M_air, ratio)
+    return smooth_lines(zfix, lambda z: M_die if 0 <= z <= top else M_air, ratio)
 
 
 def _check(m, mesh, info, log):
@@ -355,8 +369,9 @@ def air_text(air):
 
 def auto_mesh(m, fmin, fmax, res=20, fine=None, air=5.0, ratio=1.4, bc=('MUR',) * 6, nz_min=4,
               curves='extremes', vias='auto', via_snap=0.2, refine=(), z_sheet=1.0, curve_res=6.0, zone=False,
-              log=print):
-    """Mesh lines (mm) for model m. Returns dict(x, y, z, vias, info).
+              thickness=False, log=print):
+    """Mesh lines (mm) for model m. Returns dict(x, y, z, vias, info, thick): thick is the copper thickness plan
+    (thick.plan, None: zero-thickness sheets) that build_fdtd builds the model with.
 
     curves: 'extremes' (default) or 'vertices' - see curve_lines().
     vias:   'exact'  lines at the centre and +-radius of every via (round barrel resolved)
@@ -374,7 +389,10 @@ def auto_mesh(m, fmin, fmax, res=20, fine=None, air=5.0, ratio=1.4, bc=('MUR',) 
     curve_res: over curved copper (curve_lines' boxes) the largest cell is the dielectric's / curve_res: a radial
              stub's fan had cells up to 1.8 mm and notched at 2.03 GHz instead of 2.13
     zone:   True: the ground copper's edges get mesh lines only near the signal copper (signal_zone); far from it
-             the planes' pours, antipads and pads are left to the graded mesh. A number: the zone's reach (mm)"""
+             the planes' pours, antipads and pads are left to the graded mesh. A number: the zone's reach (mm)
+    thickness: copper with its stackup thickness, the stack moved to make room (thick.py); False: sheets"""
+    from . import thick
+    th = thick.plan(m) if thickness else None
     er_max = max([l['er'] for l in m.layers] + [1.0])
     lam0 = C0 / fmax * 1e3                                          # mm
     M_air, M_die = lam0 / res, lam0 / np.sqrt(er_max) / res
@@ -429,21 +447,22 @@ def auto_mesh(m, fmin, fmax, res=20, fine=None, air=5.0, ratio=1.4, bc=('MUR',) 
             placed, _ = _snap_vias(m, mode, mesh, np.inf)           # (left off the grid, openEMS would drop them)
     moved = [np.hypot(a[0] - b[0], a[1] - b[1]) for a, b in zip(placed, m.vias)]
     nsnap = sum(1 for md in mode if md == 'snap')
-    mesh[2] = _z_lines(m, ext, M_die, M_air, nz_min, ratio, dz_sheet=z_sheet * fine if z_sheet else None)
+    mesh[2] = _z_lines(m, ext, M_die, M_air, nz_min, ratio, dz_sheet=z_sheet * fine if z_sheet else None, th=th)
     nx, ny, nz = (len(mesh[k]) for k in range(3))
     dmin = [np.diff(mesh[k]).min() * 1e-3 for k in range(3)]
     dt = 1 / (C0 * np.sqrt(sum(1 / d ** 2 for d in dmin)))
     info = dict(nx=nx, ny=ny, nz=nz, cells=nx * ny * nz, fine_mm=fine, maxres_die_mm=M_die, maxres_air_mm=M_air,
                 air_mm=min(sides), air_sides_mm=sides, air_text=air_text(air), bc=list(bc), curves=curves, vias=vias, vias_snapped=nsnap,
                 via_max_move_mm=float(max(moved, default=0.0)), dt_ps=dt * 1e12, min_cell_mm=[d * 1e3 for d in dmin],
-                mem_gb=nx * ny * nz * 150e-9)
+                mem_gb=nx * ny * nz * 150e-9, thickness='on' if th else 'off')
     log(f"mesh: {nx} x {ny} x {nz} = {nx * ny * nz / 1e6:.2f} M cells (fine {fine:.3f} mm, max {M_die:.2f} mm in "
         f"dielectric / {M_air:.2f} mm in air, air margin {air_text(air)}), boundaries "
         f"{' '.join(f'{n}={b}' for n, b in zip(SIDES, bc))}" + (" (PEC on the bottom plane)" if bottom_pec else "") +
-        f", time step {dt * 1e12:.3f} ps, ~{info['mem_gb']:.1f} GB")
+        f", time step {dt * 1e12:.3f} ps, ~{info['mem_gb']:.1f} GB" +
+        (", copper with its thickness (the stack moved up by it)" if th else ""))
     _check(m, mesh, info, log)
     if nsnap:
         log(f"vias: {nsnap} snapped onto existing lines (moved <= {info['via_max_move_mm']:.3f} mm), "
             f"{len(m.vias) - nsnap} with their own lines" +
             (f"; {len(far)} moved further than --via-snap {via_snap:g} mm (no line nearer)" if far else ""))
-    return dict(x=mesh[0], y=mesh[1], z=mesh[2], vias=placed, info=info)
+    return dict(x=mesh[0], y=mesh[1], z=mesh[2], vias=placed, info=info, thick=th)

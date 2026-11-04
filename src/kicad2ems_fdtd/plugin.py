@@ -78,6 +78,10 @@ MESH = [
            "+-radius; centre = one line per axis; snap = move onto existing lines (within --via-snap)",
            choices=('auto', 'exact', 'centre', 'snap'), group=G_MESH),
     Option('via_snap', 0.2, "mm a snapped via may move (default {default})", float, group=G_MESH),
+    Option('thickness', 'off', "copper thickness: on = each copper layer solid, its stackup thickness, the stack above "
+           "moved up to make room (each dielectric keeps its thickness, as in the line model); with --sigma its two "
+           "faces carry the loss. off (default) = zero-thickness sheets. On costs z lines at both faces and a "
+           "shorter time step (the copper's cell)", choices=('off', 'on'), gui='Copper thickness', group=G_MESH),
 ]
 RUN = [
     Option('bc', 'auto', "boundaries: auto (PEC on a solid bottom plane, MUR elsewhere), MUR, PML_8 (any PML_n), "
@@ -147,7 +151,8 @@ class FDTD(Solver):
     capabilities = dict(ports='yes', gap_ports='yes', diff_pairs='yes',
                         parts='approximated: parts with ESR / ESL split in two elements (openEMS 0.37)',
                         vias='approximated: off the signal nets moved onto mesh lines (--vias, --via-snap)',
-                        outline='yes', planes='yes', edge_walls='yes: PEC sheets', thickness='ignored: conducting sheets',
+                        outline='yes', planes='yes', edge_walls='yes: PEC sheets',
+                        thickness='approximated: zero-thickness sheets; --thickness on: solid copper, the stack moved',
                         conductor_loss='yes', dispersion='yes: fitted at mid-band, or wideband Debye', radiation='yes',
                         cavity='yes', antenna='yes')
     options = MESH + RUN
@@ -203,7 +208,7 @@ class FDTD(Solver):
         bc = resolve_bc('PML_8' if s.antenna and s.bc == 'auto' else s.bc, m)
         g = auto_mesh(m, run.fmin, run.fmax, res=s.res, fine=s.fine, air=s.air, ratio=s.ratio, nz_min=s.nz, bc=bc,
                       curves=s.curves, vias=s.vias, via_snap=s.via_snap, z_sheet=s.z_sheet, curve_res=s.curve_res,
-                      zone=mesh_zone(s), log=lambda *a: None)
+                      zone=mesh_zone(s), thickness=s.thickness == 'on', log=lambda *a: None)
         cells, dt = g['info']['cells'], g['info']['dt_ps'] * 1e-12
         pulse = pulse_steps(run.fmin, run.fmax, g['info']['dt_ps'])
         tg = _peak_delay(run)
@@ -237,7 +242,8 @@ class FDTD(Solver):
             run.log(f"{who} antenna mode: boundaries {bc}, air margin {air_text(air)}")
         p.bc = resolve_bc(bc, m)
         p.grid = self.mesh(run, p, air=air, ratio=s.ratio, nz_min=s.nz, bc=p.bc, curves=s.curves, vias=s.vias,
-                           via_snap=s.via_snap, z_sheet=s.z_sheet, curve_res=s.curve_res, zone=mesh_zone(s), log=log)
+                           via_snap=s.via_snap, z_sheet=s.z_sheet, curve_res=s.curve_res, zone=mesh_zone(s),
+                           thickness=s.thickness == 'on', log=log)
         if m.walls:
             from kicad2ems.api.solver import describe_edges as describe, snap_edges as snap
             for g in [p.grid] + [lm for _, lm in (p.levels or [])]:
