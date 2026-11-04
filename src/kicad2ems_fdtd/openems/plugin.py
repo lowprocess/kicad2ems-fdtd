@@ -21,7 +21,7 @@ CONVERGE = [
 
 
 class OpenEMS(FDTD):
-    api = (2, 3)                    # kicad2ems.api (2.3: band_sigma, the roughness row)
+    api = (2, 4)                    # kicad2ems.api (2.4: resolve_finish, the finish row)
     name, aliases, label = 'openems', ('fdtd',), 'openEMS (FDTD)'
     previewed = True
     order = 10                      # first in kicad2ems's lists: the reference

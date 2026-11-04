@@ -23,13 +23,16 @@ def _fl(v):
 
 
 def build_fdtd(m, mesh, fmin, fmax, excite, bc=('MUR',) * 6, end_db=-40, sigma=None, max_steps=1_000_000,
-               dumps=(), diel='fixed', diel_fref=1e9, exc_fmax=None, api=None, rough=None):
+               dumps=(), diel='fixed', diel_fref=1e9, exc_fmax=None, api=None, rough=None, copper_kw=None):
     """sigma: copper conductivity (conducting sheets; None: PEC). rough: um RMS, the sheets' own roughness (an
     engine with it: gfdtd 1.2; None: smooth). diel: 'fixed' (loss as a conductivity fitted at the band centre) or 'wideband' (Djordjevic-Sarkar
     model matched at diel_fref Hz, as Debye poles; see dielectric.py). exc_fmax: upper edge of the
     Gaussian excitation (default fmax; antenna runs extend it, see antenna.py). api: (ContinuousStructure,
     openEMS) classes to build with (engines.engine_api; None: the default engine; readback.py records the
-    calls)."""
+    calls). copper_kw: dict(faces=, finish=) from the plugin's copper_kw(): faces marks thick copper's sheets as
+    faces (gfdtd 1.3); finish puts the surface finish on the outer layers - with thick copper on their outer face's
+    own sheet, else on their sheets weighted by the strip's share; as the sheets' own (finish['wideband'], gfdtd
+    1.3) or as the conductivity of the same loss at the band centre."""
     if api is None:
         from .engines import engine_api
         api = engine_api(None)
@@ -75,18 +78,26 @@ def build_fdtd(m, mesh, fmin, fmax, excite, bc=('MUR',) * 6, end_db=-40, sigma=N
             mat = CSX.AddMaterial(name, epsilon=_f(l['er']), kappa=kappa)
         z0, z1 = zm(l['z0']), zm(l['z1'])
         mat.AddLinPoly(pts, 'z', _f(z0), _f(z1 - z0), priority=1)
+    ckw = copper_kw or {}
+    fin = ckw.get('finish') if sigma else None
     for lay, ps in m.copper.items():
         t = m.cu_t.get(lay, 0.0)
         slab = thick.faces(m, th, lay) if th and t > 0 else None
-        body = None
+        body = outer = None
         rkw = dict(roughness=_f(rough * 1e-6)) if rough else {}
+        share = fin['share'].get(lay, 0.0) if fin else 0.0
         if slab:                                                    # solid copper: PEC; with sigma its faces lossy
             body = CSX.AddMetal(f"cu_{lay}_body") if sigma else CSX.AddMetal(f"cu_{lay}")
             if sigma:                                               # one side of a conductor t / 2 thick each
+                fkw = dict(face=True) if ckw.get('faces') else {}
                 metal = CSX.AddConductingSheet(f"cu_{lay}", conductivity=_f(sigma / 4), thickness=_f(2 * t * 1e-3),
-                                               **rkw)
+                                               **rkw, **fkw)
+                if fin and lay in fin['share']:                     # the outer face: finished, a sheet of its own
+                    z_out = slab[1] if lay == m.cu_order[-1] else slab[0]
+                    outer = (z_out, _finished_sheet(CSX, f"cu_{lay}_finish", sigma, t, fin, 1.0, rkw, face=True))
         elif sigma:
-            metal = CSX.AddConductingSheet(f"cu_{lay}", conductivity=_f(sigma), thickness=_f(t * 1e-3), **rkw)
+            metal = (_finished_sheet(CSX, f"cu_{lay}", sigma, t, fin, share, rkw, face=False) if share > 0 else
+                     CSX.AddConductingSheet(f"cu_{lay}", conductivity=_f(sigma), thickness=_f(t * 1e-3), **rkw))
         else:
             metal = CSX.AddMetal(f"cu_{lay}")
         for p in ps:
@@ -99,7 +110,8 @@ def build_fdtd(m, mesh, fmin, fmax, excite, bc=('MUR',) * 6, end_db=-40, sigma=N
                 body.AddLinPoly(xy, 'z', _f(slab[0]), _f(slab[1] - slab[0]), priority=9 if sigma else 10)
                 if sigma:
                     for zf in slab:
-                        metal.AddPolygon(xy, 'z', _f(zf), priority=10)
+                        sheet = outer[1] if outer and abs(zf - outer[0]) < 1e-12 else metal
+                        sheet.AddPolygon(xy, 'z', _f(zf), priority=10)
     over = (lambda z0, z1: thick.span(m, th, z0, z1)) if th else (lambda z0, z1: tuple(sorted((z0, z1))))
     across = (lambda z: thick.slab(m, th, z)) if th else (lambda z: (z, z))
     vias = mesh.get('vias', m.vias)                                 # as placed by the mesher (snapped)
@@ -155,6 +167,22 @@ def build_fdtd(m, mesh, fmin, fmax, excite, bc=('MUR',) * 6, end_db=-40, sigma=N
         add_dumps(CSX, dumps)
     return FDTD, CSX, ports
 
+
+
+def _finished_sheet(CSX, name, sigma, t_mm, fin, share, rkw, face):
+    """A conducting sheet of copper (sigma, t_mm) with the surface finish fin on `share` of its loss. face: the
+    sheet is the outer face of thick copper (sigma / 4, twice the thickness: one face of the copper's half), all of
+    it finished. As the sheet's own finish (fin['wideband']: gfdtd 1.3), else as the conductivity whose loss at the
+    band centre is the finished sheet's (the face's impedance of half the copper, or the strip's weighted)."""
+    s, th = (sigma / 4, 2 * t_mm * 1e-3) if face else (sigma, t_mm * 1e-3)
+    if fin['wideband']:
+        kw = dict(finish=[(_f(a), _f(b)) for a, b in fin['layers']], finish_share=_f(share), face=face)
+        return CSX.AddConductingSheet(name, conductivity=_f(s), thickness=_f(th), **rkw, **kw)
+    from kicad2ems.api.solver import finish_band_sigma
+    lay = [(None, a, b) for a, b in fin['layers']]
+    t_face = (t_mm / 2 if face else t_mm) * 1e-3
+    eff = finish_band_sigma(sigma, lay, share, *fin['band'], t=t_face)
+    return CSX.AddConductingSheet(name, conductivity=_f(eff / 4 if face else eff), thickness=_f(th), **rkw)
 
 
 def _debye_material(CSX, name, layer, fref, fmin, fmax, dt):

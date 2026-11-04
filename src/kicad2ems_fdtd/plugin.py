@@ -158,6 +158,8 @@ class FDTD(Solver):
                         outline='yes', planes='yes', edge_walls='yes: PEC sheets',
                         thickness='approximated: zero-thickness sheets; --thickness on: solid copper, the stack moved',
                         conductor_loss='yes', roughness='approximated: its conductivity at the band centre (Hammerstad)',
+                        finish='approximated: --thickness on: the outer faces\' conductivity at the band centre; '
+                               'else the sheets\' weighted by the strip\'s finished share',
                         dispersion='yes: fitted at mid-band, or wideband Debye', radiation='yes',
                         cavity='yes', antenna='yes')
     options = MESH + RUN
@@ -175,6 +177,28 @@ class FDTD(Solver):
         if self.roughness and getattr(s, 'rough', None):
             return s.sigma, s.rough
         return band_sigma(s, run.fmin, run.fmax), None
+
+    finish_wideband = False         # --finish as the sheets' own (gfdtd 1.3), else at the band centre in sigma
+    face_sheets = False             # sheets can be marked one face of thick copper (gfdtd 1.3: face=True)
+
+    def copper_kw(self, run):
+        """What build_fdtd needs beyond (sigma, rough): faces (gfdtd 1.3: thick copper's sheets marked as faces, so
+        that their roughness takes the copper's skin depth) and finish (the run's surface finish: its metal layers,
+        per outer layer the strip's share of the loss, wideband in the sheets or at the band centre, the band).
+        None when there is nothing to add."""
+        s = run.s
+        if not (self.conductor_loss and s.sigma):
+            return None
+        out = dict(faces=self.face_sheets)
+        fin = getattr(run, 'finish', None)
+        if fin is None:
+            from kicad2ems.api.solver import resolve_finish
+            fin = resolve_finish(s, run.m)
+        if fin:
+            out['finish'] = dict(name=fin.name, layers=[(sg, t) for _, sg, t in fin.layers],
+                                 share={lay: fin.share(lay) for lay in fin.faces}, wideband=self.finish_wideband,
+                                 band=(run.fmin, run.fmax))
+        return out if (out['faces'] or 'finish' in out) else None
 
     def engine(self, s):
         """The engine string of engines.py ('openems', 'gfdtd:cupy')."""
@@ -210,7 +234,7 @@ class FDTD(Solver):
     def readback(self, run, p):
         from .readback import readback
         sigma, rough = self.copper(run)
-        return readback(run.m, p.grid, p.bc, sigma=sigma, rough=rough)
+        return readback(run.m, p.grid, p.bc, sigma=sigma, rough=rough, copper_kw=self.copper_kw(run))
 
     def levels(self, s):
         """Mesh levels solved (--converge: several)."""
@@ -329,7 +353,8 @@ class FDTD(Solver):
         if s.sigma and getattr(s, 'rough', None):
             run.log(f"{self.label}: --rough {s.rough:g} um " + (f"in its conducting sheets (Hammerstad, over the band)"
                     if rough else f"as sigma {sigma:.4g} S/m (Hammerstad at the band centre)"))
-        run_kw = dict(end_db=s.end_db, end_on=s.end_on, sigma=sigma, rough=rough,
+        ckw = self.copper_kw(run)
+        run_kw = dict(end_db=s.end_db, end_on=s.end_on, sigma=sigma, rough=rough, copper_kw=ckw,
                       threads=s.threads, diel=s.diel, max_steps=s.max_steps, diel_fref=s.diel_fref * 1e9,
                       progress=progress, log=run.log, engine=self.engine(s))
         self.coarse(run, p, jobs, run_kw)

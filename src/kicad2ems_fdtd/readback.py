@@ -73,10 +73,11 @@ class _FDTD:
         return object()
 
 
-def readback(m, mesh, bc, sigma=None, rough=None):
+def readback(m, mesh, bc, sigma=None, rough=None, copper_kw=None):
     """The board as build_fdtd hands it to CSXCAD (see the module)."""
     from .model import build_fdtd
-    FDTD, CSX, _ = build_fdtd(m, mesh, 1e9, 2e9, 0, bc=bc, sigma=sigma, rough=rough, api=(_CSX, _FDTD))
+    FDTD, CSX, _ = build_fdtd(m, mesh, 1e9, 2e9, 0, bc=bc, sigma=sigma, rough=rough, copper_kw=copper_kw,
+                              api=(_CSX, _FDTD))
     out = dict(vias=[], walls=[], copper={}, parts={}, ports=[m.ports[n - 1].name for n in FDTD.ports])
     for rec in CSX.log:
         name, kind = rec[0], rec[1]
@@ -89,7 +90,7 @@ def readback(m, mesh, bc, sigma=None, rough=None):
             c, t0, t1 = (s[0], s[1], e[1]) if axis == 'x' else (s[1], s[0], e[0])
             out['walls'].append([axis, c, t0, t1, s[2], e[2]])
         elif kind == 'polygon' and name.startswith('cu_'):
-            lay = name[3:]
+            lay = name[3:].removesuffix('_finish')                   # a finished outer face: its layer's
             out['copper'][lay] = out['copper'].get(lay, 0.0) + Polygon(np.column_stack(rec[2])).area
         elif name.startswith('part_'):
             ref = next((p.ref for p in m.parts if name in (f"part_{p.ref}", f"part_{p.ref}_R", f"part_{p.ref}_X")), name[5:])

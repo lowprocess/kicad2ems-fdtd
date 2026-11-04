@@ -19,6 +19,7 @@ G = 'gfdtd'                                     # its section in kicad2ems's GUI
 ENGINE_API = (1, 0)                             # the gfdtd API this connection is written against (gfdtd.API_VERSION)
 LOSS_API = (1, 1)                               # from this gfdtd API on, conducting sheets are lossy (openEMS's model)
 ROUGH_API = (1, 2)                              # ... and rough (ConductingSheet(roughness=), a wideband fit)
+FINISH_API = (1, 3)                             # ... and finished, and thick copper's faces (finish=, face=)
 # gfdtd's speed over openEMS's estimate (24 threads), per backend: the examples' runs on an RX 7800 XT and an
 # i7-13700K, 8-70x on the GPU and 2-2.3x on the core (docs/gfdtd.md#speed); numpy ~10x slower than openEMS.
 # Vulkan runs the same kernels within a few per cent of CuPy's speed there. START: seconds of setup a run (the GPU
@@ -28,7 +29,7 @@ GPU_BACKENDS = ('cupy', 'vulkan')
 
 
 class GFDTD(FDTD):
-    api = (2, 3)                    # kicad2ems.api (2.3: band_sigma, the roughness row)
+    api = (2, 4)                    # kicad2ems.api (2.4: resolve_finish, the finish row)
     name, aliases, label = 'gfdtd', ('gpu-fdtd',), 'gfdtd (GPU FDTD)'
     in_auto = True                  # auto: picked over openEMS where it can (no --converge or --drive; --sigma: LOSS_API)
     in_all = False                  # --solvers all: openEMS's model again, named on its own
@@ -37,8 +38,11 @@ class GFDTD(FDTD):
     tag = '_gfdtd'
     capabilities = dict(FDTD.capabilities,
                         conductor_loss="yes: openEMS's conducting-sheet model (gfdtd 261104 or later; PEC before)",
-                        roughness="yes: Hammerstad over the band, a wideband fit of the sheets (gfdtd 261104-r2 or "
+                        roughness="yes: Hammerstad over the band, a wideband fit of the sheets (gfdtd 261104-r1 or "
                                   "later; else at the band centre)",
+                        finish="yes with --thickness on: the outer faces' own sheets, a wideband fit; else the outer "
+                               "layers' sheets weighted by the strip's finished share (gfdtd 261104-r2 or later; else "
+                               "at the band centre)",
                         dispersion='yes: fitted at mid-band, or wideband Debye',
                         antenna='yes (a phased drive: a run per driven port)')
     options = MESH + RUN + [
@@ -57,6 +61,15 @@ class GFDTD(FDTD):
     def roughness(self):
         """--rough as the sheets' own roughness when the installed gfdtd has it (ROUGH_API)."""
         return has_conductor_loss(ROUGH_API)
+
+    @property
+    def finish_wideband(self):
+        """--finish as the sheets' own (a wideband fit) when the installed gfdtd has it (FINISH_API)."""
+        return has_conductor_loss(FINISH_API)
+
+    @property
+    def face_sheets(self):
+        return has_conductor_loss(FINISH_API)
 
     def check(self, s=None):
         try:

@@ -135,3 +135,41 @@ def test_rough_copper_by_engine(monkeypatch, demo_files):
     _, CSX, _ = build_fdtd(m, mesh, 1e9, 8e9, 0, bc=bc, sigma=5.8e7, rough=1.0, api=engine_api('gfdtd:numpy'))
     sheets = [p for p in CSX.GetAllProperties() if type(p).__name__ == 'ConductingSheet']
     assert sheets and all(p.roughness == pytest.approx(1e-6) for p in sheets)
+
+
+def test_finished_copper_by_engine(monkeypatch, demo_files):
+    """--finish: gfdtd from engine API 1.3 gets it in its sheets (thick copper: the outer face's own sheet, all
+    finished; sheets: weighted by the strip's share) and marks thick copper's sheets as faces; openEMS the
+    conductivity of the same loss at the band centre."""
+    from types import SimpleNamespace
+    from kicad2ems.importers.kicad import KiCadBoard
+    from kicad2ems.board import Board
+    from kicad2ems.solvers import registry
+    from kicad2ems_fdtd import gfdtd as conn
+    from kicad2ems_fdtd.boundaries import resolve_bc
+    from kicad2ems_fdtd.model import build_fdtd
+    from kicad2ems_fdtd.engines import engine_api
+    from kicad2ems_fdtd.mesh import auto_mesh
+    base, _ = demo_files
+    m = Board(KiCadBoard(base + '.kicad_pcb'), nets=['RF', 'GND'], pos_file=base + '-top.pos', ground='B.Cu')
+    s = SimpleNamespace(sigma=5.8e7, rough=None, finish='enig', mask=False)
+    run = SimpleNamespace(s=s, m=m, fmin=1e9, fmax=8e9)
+    monkeypatch.setattr(gfdtd, 'API_VERSION', conn.FINISH_API)
+    ckw = conn.GFDTD().copper_kw(run)
+    top = m.cu_order[-1]
+    assert ckw['faces'] and ckw['finish']['wideband'] and ckw['finish']['share'][top] > 0.3
+    bc = resolve_bc('auto', m)
+    sheets = lambda CSX: {p.name: p for p in CSX.GetAllProperties() if type(p).__name__ == 'ConductingSheet'}
+    mesh = auto_mesh(m, 1e9, 8e9, bc=bc, res=10, thickness=True, log=lambda *a: None)
+    _, CSX, _ = build_fdtd(m, mesh, 1e9, 8e9, 0, bc=bc, sigma=5.8e7, copper_kw=ckw, api=engine_api('gfdtd:numpy'))
+    sh = sheets(CSX)
+    assert sh[f'cu_{top}_finish'].finish and sh[f'cu_{top}_finish'].finish_share == 1.0 and sh[f'cu_{top}'].face
+    assert not sh[f'cu_{top}'].finish
+    mesh = auto_mesh(m, 1e9, 8e9, bc=bc, res=10, log=lambda *a: None)
+    _, CSX, _ = build_fdtd(m, mesh, 1e9, 8e9, 0, bc=bc, sigma=5.8e7, copper_kw=ckw, api=engine_api('gfdtd:numpy'))
+    sh = sheets(CSX)
+    assert sh[f'cu_{top}'].finish_share == pytest.approx(ckw['finish']['share'][top])
+    oc = registry()['openems'].copper_kw(run)
+    assert not oc['faces'] and not oc['finish']['wideband']
+    _, CSX, _ = build_fdtd(m, mesh, 1e9, 8e9, 0, bc=bc, sigma=5.8e7, copper_kw=oc, api=engine_api('gfdtd:numpy'))
+    assert sheets(CSX)[f'cu_{top}'].conductivity < 5.8e7 / 1.5 and not sheets(CSX)[f'cu_{top}'].finish

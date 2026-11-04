@@ -272,7 +272,7 @@ def run_dir(m, k, out_dir, engine=None):
 
 
 
-def _run_port(k, m, mesh, freq, bc, out_dir, end_db=-40, sigma=None, rough=None, threads=0, xml_path=None, dumps=(),
+def _run_port(k, m, mesh, freq, bc, out_dir, end_db=-40, sigma=None, rough=None, copper_kw=None, threads=0, xml_path=None, dumps=(),
               verbose=1, diel='fixed', diel_fref=1e9, max_steps=1_000_000, progress=None, exc_fmax=None,
               setup=None, analyse=None, end_on='ports', engine=None):
     """One openEMS run with port k excited (top level, so it can run in a worker process); engine: another FDTD
@@ -282,7 +282,8 @@ def _run_port(k, m, mesh, freq, bc, out_dir, end_db=-40, sigma=None, rough=None,
     {freq: incident voltage} or None, seconds, steps taken, what analyse returned or None)."""
     fmin, fmax = freq[0], freq[-1]
     path = run_dir(m, k, out_dir, engine)
-    FDTD, CSX, ports = build_fdtd(m, mesh, fmin, fmax, k, bc=bc, end_db=end_db, sigma=sigma, rough=rough, dumps=dumps,
+    FDTD, CSX, ports = build_fdtd(m, mesh, fmin, fmax, k, bc=bc, end_db=end_db, sigma=sigma, rough=rough,
+                                  copper_kw=copper_kw, dumps=dumps,
                                   diel=diel, diel_fref=diel_fref, max_steps=max_steps, exc_fmax=exc_fmax,
                                   api=engine_api(engine))
     token = setup(FDTD, CSX) if setup else None
@@ -324,7 +325,7 @@ def _run_port(k, m, mesh, freq, bc, out_dir, end_db=-40, sigma=None, rough=None,
 
 
 
-def run_excitations(m, mesh, freq, excite, bc, out_dir, end_db=-40, sigma=None, rough=None, threads=0, xml_path=None,
+def run_excitations(m, mesh, freq, excite, bc, out_dir, end_db=-40, sigma=None, rough=None, copper_kw=None, threads=0, xml_path=None,
                     dumps=(), dump_runs=None, jobs=1, diel='fixed', diel_fref=1e9, max_steps=1_000_000, progress=None,
                     exc_fmax=None, setup=None, analyse=None, log=print, end_on='ports', engine=None):
     """One openEMS run per excited port, `jobs` of them at a time (separate processes; without `threads`,
@@ -369,6 +370,7 @@ def run_excitations(m, mesh, freq, excite, bc, out_dir, end_db=-40, sigma=None, 
             log("  " + w)
 
     common = dict(m=m, mesh=mesh, freq=freq, bc=bc, out_dir=out_dir, end_db=end_db, sigma=sigma, rough=rough,
+                  copper_kw=copper_kw,
                   threads=threads,
                   diel=diel, diel_fref=diel_fref, max_steps=max_steps, exc_fmax=exc_fmax, setup=setup, analyse=analyse,
                   end_on=end_on, engine=engine)
