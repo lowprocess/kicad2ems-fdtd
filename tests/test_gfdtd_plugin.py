@@ -120,7 +120,7 @@ def test_rough_copper_by_engine(monkeypatch, demo_files):
     s = SimpleNamespace(sigma=5.8e7, rough=1.0)
     run = SimpleNamespace(s=s, fmin=1e9, fmax=9e9)
     centre = band_sigma(s, 1e9, 9e9)
-    assert centre < 5.8e7 / 1.5                                       # K(5 GHz, 1 um) ~ 1.67
+    assert centre < 5.8e7 / 1.5                                       # K(5 GHz, 1 um) ~ 1.65
     assert registry()['openems'].copper(run) == (centre, None)
     monkeypatch.setattr(gfdtd, 'API_VERSION', conn.ROUGH_API)
     sv = conn.GFDTD()
