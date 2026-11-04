@@ -74,3 +74,31 @@ def test_engine_api_version(monkeypatch):
     assert 'update gfdtd' in conn.engine_compatible()
     monkeypatch.delattr(gfdtd, 'API_VERSION')
     assert 'no API version' in conn.engine_compatible() and 'update gfdtd' in conn.engine_compatible()
+
+
+def test_sigma_follows_the_engine_api(monkeypatch, demo_files):
+    """--sigma: conducting sheets on gfdtd from engine API 1.1 (lossy there), and auto keeps gfdtd for such runs;
+    on an older gfdtd its copper stays PEC and auto gives --sigma runs to openEMS."""
+    from types import SimpleNamespace
+    from kicad2ems.api.solver import AUTO
+    from kicad2ems.importers.kicad import KiCadBoard
+    from kicad2ems.board import Board
+    from kicad2ems_fdtd import gfdtd as conn
+    from kicad2ems_fdtd.boundaries import resolve_bc
+    from kicad2ems_fdtd.model import build_fdtd
+    from kicad2ems_fdtd.engines import engine_api
+    from kicad2ems_fdtd.mesh import auto_mesh
+    run = SimpleNamespace(plan=[AUTO], s=SimpleNamespace(sigma=5.8e7, converge=None))
+    monkeypatch.setattr(gfdtd, 'API_VERSION', conn.LOSS_API)
+    sv = conn.GFDTD()
+    assert sv.conductor_loss and sv.assess(run) == [] and sv.capabilities['conductor_loss'].startswith('yes')
+    base, _ = demo_files
+    m = Board(KiCadBoard(base + '.kicad_pcb'), nets=['RF', 'GND'], pos_file=base + '-top.pos', ground='B.Cu')
+    bc = resolve_bc('auto', m)
+    mesh = auto_mesh(m, 1e9, 8e9, bc=bc, res=10, log=lambda *a: None)
+    FDTD, CSX, _ = build_fdtd(m, mesh, 1e9, 8e9, 0, bc=bc, sigma=5.8e7 if sv.conductor_loss else None,
+                              api=engine_api('gfdtd:numpy'))
+    op = build(CSX, FDTD.settings())
+    assert op.n_sheet > 0 and any('conducting sheet cu_' in n for n in op.notes)
+    monkeypatch.setattr(gfdtd, 'API_VERSION', (1, 0))
+    assert not sv.conductor_loss and '--sigma' in sv.assess(run)[0]
