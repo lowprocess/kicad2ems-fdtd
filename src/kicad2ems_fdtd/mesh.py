@@ -285,8 +285,9 @@ def signal_sheets(m, plane=0.85):
     return sorted(out)
 
 
-def _z_lines(m, ext, M_die, M_air, nz_min, ratio, dz_sheet=None, th=None):
-    """z lines: every interface, >= nz_min cells per dielectric, copper sheets exactly on lines, graded
+def _z_lines(m, ext, M_die, M_air, nz_min, ratio, dz_sheet=None, th=None, nz_mask=None):
+    """z lines: every interface, >= nz_min cells per dielectric (nz_mask, if given, through solder mask: a thin
+    layer's cells set the time step), copper sheets exactly on lines, graded
     air (ext[4] below - none on a PEC bottom plane - and ext[5] above). dz_sheet (mm): the first cell either
     side of each signal sheet (signal_sheets), graded by `ratio` into the dielectric. th: copper thickness
     (thick.plan): the stack moved as thick.py says, lines at both faces of each copper layer and one cell (more
@@ -308,10 +309,13 @@ def _z_lines(m, ext, M_die, M_air, nz_min, ratio, dz_sheet=None, th=None):
             continue
         lay = next((l for l in layers if l['z0'] <= z0 + 1e-9 and l['z1'] >= z1 - 1e-9), None)
         Mz = M_die if lay else M_air
-        n = max(nz_min, int(np.ceil((z1 - z0) / Mz)))
+        n_min = nz_mask if nz_mask and lay and lay.get('kind') == 'mask' else nz_min
+        n = max(n_min, int(np.ceil((z1 - z0) / Mz)))
         h = (z1 - z0) / n
         near = [zc for zc in (z0, z1) if lay and any(abs(zc - sz) < 1e-9 for sz in sheets)]
-        if not near or dz_sheet >= h:
+        # uniform also when the graded line(s) would leave a sliver (a one-cell layer barely thicker than dz_sheet:
+        # a 0.25 um cell at a 92 um mask's top, graded out from, made 411 z lines instead of 25)
+        if not near or dz_sheet >= h or (z1 - z0) < 1.5 * dz_sheet * len(near):
             zl += list(np.linspace(z0, z1, n + 1))
             continue
         # graded from dz_sheet at the sheet(s) up to the uniform cell h
@@ -369,7 +373,7 @@ def air_text(air):
 
 def auto_mesh(m, fmin, fmax, res=20, fine=None, air=5.0, ratio=1.4, bc=('MUR',) * 6, nz_min=4,
               curves='extremes', vias='auto', via_snap=0.2, refine=(), z_sheet=1.0, curve_res=6.0, zone=False,
-              thickness=False, log=print):
+              thickness=False, nz_mask=None, log=print):
     """Mesh lines (mm) for model m. Returns dict(x, y, z, vias, info, thick): thick is the copper thickness plan
     (thick.plan, None: zero-thickness sheets) that build_fdtd builds the model with.
 
@@ -447,7 +451,8 @@ def auto_mesh(m, fmin, fmax, res=20, fine=None, air=5.0, ratio=1.4, bc=('MUR',) 
             placed, _ = _snap_vias(m, mode, mesh, np.inf)           # (left off the grid, openEMS would drop them)
     moved = [np.hypot(a[0] - b[0], a[1] - b[1]) for a, b in zip(placed, m.vias)]
     nsnap = sum(1 for md in mode if md == 'snap')
-    mesh[2] = _z_lines(m, ext, M_die, M_air, nz_min, ratio, dz_sheet=z_sheet * fine if z_sheet else None, th=th)
+    mesh[2] = _z_lines(m, ext, M_die, M_air, nz_min, ratio, dz_sheet=z_sheet * fine if z_sheet else None, th=th,
+                       nz_mask=nz_mask)
     nx, ny, nz = (len(mesh[k]) for k in range(3))
     dmin = [np.diff(mesh[k]).min() * 1e-3 for k in range(3)]
     dt = 1 / (C0 * np.sqrt(sum(1 / d ** 2 for d in dmin)))

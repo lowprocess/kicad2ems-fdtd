@@ -67,6 +67,10 @@ MESH = [
            conv=lambda v: str(v).lower(), gui='Mesh zone around the signal (on / mm / off)', group=G_MESH),
     Option('nz', 4, "minimum cells through each dielectric layer (default {default})", int,
            gui='Cells through each dielectric', group=G_MESH),
+    Option('nz_mask', None, "minimum cells through the solder mask, with --mask (default: --nz). The mask's cells "
+           "set the time step: on the hairpin, 4 cells through its 10 um made the run 17x longer, 2 cells 7x, 1 cell 3x, "
+           "all within 1 MHz of each other", int,
+           gui='Cells through the solder mask (empty: as dielectrics)', group=G_MESH),
     Option('z_sheet', 1.0, "first z cell either side of a copper layer with signal edges, as a multiple of the "
            "fine cell, graded into the dielectric (default {default}; 0: uniform, --nz cells)", float,
            gui='First z cell at signal copper (x fine)', group=G_MESH),
@@ -222,7 +226,7 @@ class FDTD(Solver):
         bc = resolve_bc('PML_8' if s.antenna and s.bc == 'auto' else s.bc, m)
         g = auto_mesh(m, run.fmin, run.fmax, res=s.res, fine=s.fine, air=s.air, ratio=s.ratio, nz_min=s.nz, bc=bc,
                       curves=s.curves, vias=s.vias, via_snap=s.via_snap, z_sheet=s.z_sheet, curve_res=s.curve_res,
-                      zone=mesh_zone(s), thickness=s.thickness == 'on', log=lambda *a: None)
+                      zone=mesh_zone(s), thickness=s.thickness == 'on', nz_mask=s.nz_mask, log=lambda *a: None)
         cells, dt = g['info']['cells'], g['info']['dt_ps'] * 1e-12
         pulse = pulse_steps(run.fmin, run.fmax, g['info']['dt_ps'])
         tg = _peak_delay(run)
@@ -257,7 +261,7 @@ class FDTD(Solver):
         p.bc = resolve_bc(bc, m)
         p.grid = self.mesh(run, p, air=air, ratio=s.ratio, nz_min=s.nz, bc=p.bc, curves=s.curves, vias=s.vias,
                            via_snap=s.via_snap, z_sheet=s.z_sheet, curve_res=s.curve_res, zone=mesh_zone(s),
-                           thickness=s.thickness == 'on', log=log)
+                           thickness=s.thickness == 'on', nz_mask=s.nz_mask, log=log)
         if m.walls:
             from kicad2ems.api.solver import describe_edges as describe, snap_edges as snap
             for g in [p.grid] + [lm for _, lm in (p.levels or [])]:
