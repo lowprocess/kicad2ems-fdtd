@@ -102,3 +102,36 @@ def test_sigma_follows_the_engine_api(monkeypatch, demo_files):
     assert op.n_sheet > 0 and any('conducting sheet cu_' in n for n in op.notes)
     monkeypatch.setattr(gfdtd, 'API_VERSION', (1, 0))
     assert not sv.conductor_loss and '--sigma' in sv.assess(run)[0]
+
+
+def test_rough_copper_by_engine(monkeypatch, demo_files):
+    """--rough: gfdtd from engine API 1.2 gets it in its sheets (Hammerstad over the band); openEMS, and an older
+    gfdtd, the conductivity at the band centre (band_sigma)."""
+    from types import SimpleNamespace
+    from kicad2ems.api.solver import band_sigma
+    from kicad2ems.solvers import registry
+    from kicad2ems.importers.kicad import KiCadBoard
+    from kicad2ems.board import Board
+    from kicad2ems_fdtd import gfdtd as conn
+    from kicad2ems_fdtd.boundaries import resolve_bc
+    from kicad2ems_fdtd.model import build_fdtd
+    from kicad2ems_fdtd.engines import engine_api
+    from kicad2ems_fdtd.mesh import auto_mesh
+    s = SimpleNamespace(sigma=5.8e7, rough=1.0)
+    run = SimpleNamespace(s=s, fmin=1e9, fmax=9e9)
+    centre = band_sigma(s, 1e9, 9e9)
+    assert centre < 5.8e7 / 1.5                                       # K(5 GHz, 1 um) ~ 1.67
+    assert registry()['openems'].copper(run) == (centre, None)
+    monkeypatch.setattr(gfdtd, 'API_VERSION', conn.ROUGH_API)
+    sv = conn.GFDTD()
+    assert sv.copper(run) == (5.8e7, 1.0) and sv.capabilities['roughness'].startswith('yes')
+    monkeypatch.setattr(gfdtd, 'API_VERSION', conn.LOSS_API)
+    assert sv.copper(run) == (centre, None)
+    assert sv.copper(SimpleNamespace(s=SimpleNamespace(sigma=None, rough=1.0), fmin=1e9, fmax=9e9)) == (None, None)
+    base, _ = demo_files
+    m = Board(KiCadBoard(base + '.kicad_pcb'), nets=['RF', 'GND'], pos_file=base + '-top.pos', ground='B.Cu')
+    bc = resolve_bc('auto', m)
+    mesh = auto_mesh(m, 1e9, 8e9, bc=bc, res=10, log=lambda *a: None)
+    _, CSX, _ = build_fdtd(m, mesh, 1e9, 8e9, 0, bc=bc, sigma=5.8e7, rough=1.0, api=engine_api('gfdtd:numpy'))
+    sheets = [p for p in CSX.GetAllProperties() if type(p).__name__ == 'ConductingSheet']
+    assert sheets and all(p.roughness == pytest.approx(1e-6) for p in sheets)

@@ -6,7 +6,9 @@ to <out>/gfdtd/exc_<port>, the CSX file to <name>_gfdtd.xml (also runnable with 
 results to <name>_gfdtd_antenna.json.
 
 --sigma: openEMS's conducting-sheet model on gfdtd 261104 or later (engine API 1.1, LOSS_API); before that its
-copper is PEC, and --solvers auto gives --sigma runs to openEMS. Not yet: the --converge levels.
+copper is PEC, and --solvers auto gives --sigma runs to openEMS. --rough: the sheets' own (Hammerstad, a wideband
+fit) from engine API 1.2 (ROUGH_API), else as the conductivity at the band centre, as openEMS. Not yet: the
+--converge levels.
 """
 import os
 
@@ -16,6 +18,7 @@ from .plugin import FDTD, MESH, RUN
 G = 'gfdtd'                                     # its section in kicad2ems's GUI
 ENGINE_API = (1, 0)                             # the gfdtd API this connection is written against (gfdtd.API_VERSION)
 LOSS_API = (1, 1)                               # from this gfdtd API on, conducting sheets are lossy (openEMS's model)
+ROUGH_API = (1, 2)                              # ... and rough (ConductingSheet(roughness=), a wideband fit)
 # gfdtd's speed over openEMS's estimate (24 threads), per backend: the examples' runs on an RX 7800 XT and an
 # i7-13700K, 8-70x on the GPU and 2-2.3x on the core (docs/gfdtd.md#speed); numpy ~10x slower than openEMS.
 # Vulkan runs the same kernels within a few per cent of CuPy's speed there. START: seconds of setup a run (the GPU
@@ -25,7 +28,7 @@ GPU_BACKENDS = ('cupy', 'vulkan')
 
 
 class GFDTD(FDTD):
-    api = (2, 1)                    # kicad2ems.api
+    api = (2, 3)                    # kicad2ems.api (2.3: band_sigma, the roughness row)
     name, aliases, label = 'gfdtd', ('gpu-fdtd',), 'gfdtd (GPU FDTD)'
     in_auto = True                  # auto: picked over openEMS where it can (no --converge or --drive; --sigma: LOSS_API)
     in_all = False                  # --solvers all: openEMS's model again, named on its own
@@ -34,6 +37,8 @@ class GFDTD(FDTD):
     tag = '_gfdtd'
     capabilities = dict(FDTD.capabilities,
                         conductor_loss="yes: openEMS's conducting-sheet model (gfdtd 261104 or later; PEC before)",
+                        roughness="yes: Hammerstad over the band, a wideband fit of the sheets (gfdtd 261104-r2 or "
+                                  "later; else at the band centre)",
                         dispersion='yes: fitted at mid-band, or wideband Debye',
                         antenna='yes (a phased drive: a run per driven port)')
     options = MESH + RUN + [
@@ -47,6 +52,11 @@ class GFDTD(FDTD):
     def conductor_loss(self):
         """--sigma reaches the model (conducting sheets) only when the installed gfdtd models their loss."""
         return has_conductor_loss()
+
+    @property
+    def roughness(self):
+        """--rough as the sheets' own roughness when the installed gfdtd has it (ROUGH_API)."""
+        return has_conductor_loss(ROUGH_API)
 
     def check(self, s=None):
         try:
@@ -162,14 +172,15 @@ def engine_compatible():
             f"{want}: update {'kicad2ems-fdtd' if newer else 'gfdtd'}")
 
 
-def has_conductor_loss():
-    """The installed gfdtd models conducting sheets' loss (engine API LOSS_API or later, same major)."""
+def has_conductor_loss(need=LOSS_API):
+    """The installed gfdtd models conducting sheets' loss (engine API LOSS_API or later, same major; need:
+    another API, ROUGH_API for their roughness)."""
     try:
         import gfdtd
     except ImportError:
         return False
     have = tuple(getattr(gfdtd, 'API_VERSION', (0, 0)))
-    return have[0] == LOSS_API[0] and have >= LOSS_API
+    return have[0] == need[0] and have >= need
 
 
 def api(backend=''):

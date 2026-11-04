@@ -23,8 +23,9 @@ def _fl(v):
 
 
 def build_fdtd(m, mesh, fmin, fmax, excite, bc=('MUR',) * 6, end_db=-40, sigma=None, max_steps=1_000_000,
-               dumps=(), diel='fixed', diel_fref=1e9, exc_fmax=None, api=None):
-    """diel: 'fixed' (loss as a conductivity fitted at the band centre) or 'wideband' (Djordjevic-Sarkar
+               dumps=(), diel='fixed', diel_fref=1e9, exc_fmax=None, api=None, rough=None):
+    """sigma: copper conductivity (conducting sheets; None: PEC). rough: um RMS, the sheets' own roughness (an
+    engine with it: gfdtd 1.2; None: smooth). diel: 'fixed' (loss as a conductivity fitted at the band centre) or 'wideband' (Djordjevic-Sarkar
     model matched at diel_fref Hz, as Debye poles; see dielectric.py). exc_fmax: upper edge of the
     Gaussian excitation (default fmax; antenna runs extend it, see antenna.py). api: (ContinuousStructure,
     openEMS) classes to build with (engines.engine_api; None: the default engine; readback.py records the
@@ -78,12 +79,14 @@ def build_fdtd(m, mesh, fmin, fmax, excite, bc=('MUR',) * 6, end_db=-40, sigma=N
         t = m.cu_t.get(lay, 0.0)
         slab = thick.faces(m, th, lay) if th and t > 0 else None
         body = None
+        rkw = dict(roughness=_f(rough * 1e-6)) if rough else {}
         if slab:                                                    # solid copper: PEC; with sigma its faces lossy
             body = CSX.AddMetal(f"cu_{lay}_body") if sigma else CSX.AddMetal(f"cu_{lay}")
             if sigma:                                               # one side of a conductor t / 2 thick each
-                metal = CSX.AddConductingSheet(f"cu_{lay}", conductivity=_f(sigma / 4), thickness=_f(2 * t * 1e-3))
+                metal = CSX.AddConductingSheet(f"cu_{lay}", conductivity=_f(sigma / 4), thickness=_f(2 * t * 1e-3),
+                                               **rkw)
         elif sigma:
-            metal = CSX.AddConductingSheet(f"cu_{lay}", conductivity=_f(sigma), thickness=_f(t * 1e-3))
+            metal = CSX.AddConductingSheet(f"cu_{lay}", conductivity=_f(sigma), thickness=_f(t * 1e-3), **rkw)
         else:
             metal = CSX.AddMetal(f"cu_{lay}")
         for p in ps:

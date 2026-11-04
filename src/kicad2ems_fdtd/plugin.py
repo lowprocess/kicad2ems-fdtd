@@ -153,11 +153,24 @@ class FDTD(Solver):
                         vias='approximated: off the signal nets moved onto mesh lines (--vias, --via-snap)',
                         outline='yes', planes='yes', edge_walls='yes: PEC sheets',
                         thickness='approximated: zero-thickness sheets; --thickness on: solid copper, the stack moved',
-                        conductor_loss='yes', dispersion='yes: fitted at mid-band, or wideband Debye', radiation='yes',
+                        conductor_loss='yes', roughness='approximated: its conductivity at the band centre (Hammerstad)',
+                        dispersion='yes: fitted at mid-band, or wideband Debye', radiation='yes',
                         cavity='yes', antenna='yes')
     options = MESH + RUN
     tag = ''
     conductor_loss = True           # --sigma as conducting sheets (False: PEC copper)
+    roughness = False               # --rough as the sheets' own (gfdtd 1.2), else at the band centre in sigma
+
+    def copper(self, run):
+        """(sigma, rough um RMS) the model's conducting sheets get: (None, None) for PEC copper; --rough as the
+        conductivity at the band centre where the engine has no roughness of its own."""
+        from kicad2ems.api.solver import band_sigma
+        s = run.s
+        if not (self.conductor_loss and s.sigma):
+            return None, None
+        if self.roughness and getattr(s, 'rough', None):
+            return s.sigma, s.rough
+        return band_sigma(s, run.fmin, run.fmax), None
 
     def engine(self, s):
         """The engine string of engines.py ('openems', 'gfdtd:cupy')."""
@@ -192,7 +205,8 @@ class FDTD(Solver):
 
     def readback(self, run, p):
         from .readback import readback
-        return readback(run.m, p.grid, p.bc, sigma=run.s.sigma if self.conductor_loss else None)
+        sigma, rough = self.copper(run)
+        return readback(run.m, p.grid, p.bc, sigma=sigma, rough=rough)
 
     def levels(self, s):
         """Mesh levels solved (--converge: several)."""
@@ -307,7 +321,11 @@ class FDTD(Solver):
                     f"{n_runs} run(s)")
         jobs = self.jobs(run, p)
         progress = dict(mode='raw' if s.openems_output else 'bar', on_status=run.status if run.events else None)
-        run_kw = dict(end_db=s.end_db, end_on=s.end_on, sigma=s.sigma if self.conductor_loss else None,
+        sigma, rough = self.copper(run)
+        if s.sigma and getattr(s, 'rough', None):
+            run.log(f"{self.label}: --rough {s.rough:g} um " + (f"in its conducting sheets (Hammerstad, over the band)"
+                    if rough else f"as sigma {sigma:.4g} S/m (Hammerstad at the band centre)"))
+        run_kw = dict(end_db=s.end_db, end_on=s.end_on, sigma=sigma, rough=rough,
                       threads=s.threads, diel=s.diel, max_steps=s.max_steps, diel_fref=s.diel_fref * 1e9,
                       progress=progress, log=run.log, engine=self.engine(s))
         self.coarse(run, p, jobs, run_kw)
