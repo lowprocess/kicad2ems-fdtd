@@ -387,7 +387,7 @@ def auto_mesh(m, fmin, fmax, res=20, fine=None, air=5.0, ratio=1.4, bc=('MUR',) 
     refine: [(x0, y0, x1, y1, step)] boxes (model coordinates, mm) with x and y lines every `step`
     z_sheet: the first z cell either side of a copper sheet with signal edges, x fine, graded into the
              dielectric (0: uniform cells, nz_min per dielectric). On 0.8 mm FR-4 the default nz of 4 gave a
-             10 dB coupler -8.6 dB (converged about -10.6) and a grounded CPW's S11 at 5 GHz -19 dB (about -33);
+             10 dB coupler -8.6 dB (converged -10.24 to -10.29, lossless) and a grounded CPW's S11 at 5 GHz -19 dB (about -33);
              grading from the fine cell gave -10.3 and -31.6 dB for 1.4x the run time. The gap and edge cells in
              x / y hardly mattered (docs/meshing.md#z-lines)
     curve_res: over curved copper (curve_lines' boxes) the largest cell is the dielectric's / curve_res: a radial
