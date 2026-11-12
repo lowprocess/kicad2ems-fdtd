@@ -163,6 +163,7 @@ class FDTD(Solver):
                         dispersion='yes: fitted at mid-band, or wideband Debye', radiation='yes',
                         cavity='yes', antenna='yes')
     options = MESH + RUN
+    basic = ('res',)                # what a run is set up with, of these (kicad2ems 2.9: Solver.basic)
     tag = ''
     conductor_loss = True           # --sigma as conducting sheets (False: PEC copper)
     roughness = False               # --rough as the sheets' own (gfdtd 1.2), else at the band centre in sigma
