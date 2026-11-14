@@ -29,7 +29,7 @@ GPU_BACKENDS = ('cupy', 'vulkan')
 
 
 class GFDTD(FDTD):
-    api = (2, 4)                    # kicad2ems.api (2.4: resolve_finish, the finish row)
+    api = (2, 9)                    # kicad2ems.api (2.4: resolve_finish, the finish row; 2.9: basic)
     name, aliases, label = 'gfdtd', ('gpu-fdtd',), 'gfdtd (GPU FDTD)'
     in_auto = True                  # auto: picked over openEMS where it can (no --drive; --sigma: LOSS_API)
     in_all = False                  # --solvers all: openEMS's model again, named on its own
