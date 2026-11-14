@@ -78,6 +78,14 @@ def build_fdtd(m, mesh, fmin, fmax, excite, bc=('MUR',) * 6, end_db=-40, sigma=N
             mat = CSX.AddMaterial(name, epsilon=_f(l['er']), kappa=kappa)
         z0, z1 = zm(l['z0']), zm(l['z1'])
         mat.AddLinPoly(pts, 'z', _f(z0), _f(z1 - z0), priority=1)
+    holes = list(getattr(m.outline, 'interiors', []))
+    if holes and m.layers:                                          # the outline's cut-outs: air through the
+        air = CSX.AddMaterial('cutout', epsilon=1.0)                # dielectric (R-E6; it had been substrate)
+        zb, zt = min(zm(l['z0']) for l in m.layers), max(zm(l['z1']) for l in m.layers)
+        for h in holes:
+            hx, hy = h.xy
+            air.AddLinPoly([np.asarray(hx[:-1], float), np.asarray(hy[:-1], float)], 'z', _f(zb), _f(zt - zb),
+                           priority=2)
     ckw = copper_kw or {}
     fin = ckw.get('finish') if sigma else None
     for lay, ps in m.copper.items():

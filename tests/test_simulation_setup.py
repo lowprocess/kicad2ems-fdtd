@@ -103,3 +103,19 @@ def test_stop_request_starts_no_further_openems_run(tmp_path, monkeypatch):
     assert ran == [str(tmp_path / 'exc_1')]
     stop.disarm()
     assert not stop.requested() and not (tmp_path / stop.NAME).exists()
+
+
+def test_a_cutout_in_the_outline_is_air(demo_files, fake_openems):
+    """The board outline's cut-outs (holes in Board.outline since R-E6) are air through the dielectric: one air
+    LinPoly each, above the dielectric's priority."""
+    from shapely.geometry import Polygon
+    from kicad2ems_fdtd.model import build_fdtd
+    base, _ = demo_files
+    m = Board(KiCadBoard(base + '.kicad_pcb'), nets=['RF', 'GND'], pos_file=base + '-top.pos', ground='B.Cu')
+    x0, y0, x1, y1 = m.outline.bounds
+    cx, cy = (x0 + x1) / 2, y0 + 0.15 * (y1 - y0)
+    m.outline = Polygon(m.outline.exterior, [[(cx - 1, cy - 0.5), (cx + 1, cy - 0.5), (cx + 1, cy + 0.5), (cx - 1, cy + 0.5)]])
+    bc = resolve_bc('auto', m)
+    mesh = auto_mesh(m, 1e9, 8e9, bc=bc, log=lambda *a: None)
+    build_fdtd(m, mesh, 1e9, 8e9, 0, bc=bc)
+    assert fake_openems.count('linpoly') == len(m.layers) + 1
