@@ -16,7 +16,8 @@ the package reaches kicad2ems only through `kicad2ems.api.solver`.
 - `engines.py`: the engines by name (`'openems'`, `'gfdtd:cupy'`): their `ContinuousStructure` / `openEMS`
   classes. They ship here, with the FDTD layer that drives them
 - `openems/`: the solver `openems` (alias `fdtd`): openEMS's engine and its import check (`kicad2ems --check`),
-  an openEMS in another environment (`openems_venv`), `--converge`
+  an openEMS in another environment (`openems_venv`); `--converge` (`converge.py`) is the FDTD layer's, on either
+  engine
 - `gfdtd.py`: the solver `gfdtd` (alias `gpu-fdtd`) on gfdtd's engine: its backends, its speed estimate, its
   runs at once on the GPU. It is written against gfdtd's API version `ENGINE_API` (gfdtd's `API_VERSION`): a
   gfdtd of another major version, or an older minor one, is not used, and `kicad2ems --check` says which to update

@@ -173,3 +173,17 @@ def test_finished_copper_by_engine(monkeypatch, demo_files):
     assert not oc['faces'] and not oc['finish']['wideband']
     _, CSX, _ = build_fdtd(m, mesh, 1e9, 8e9, 0, bc=bc, sigma=5.8e7, copper_kw=oc, api=engine_api('gfdtd:numpy'))
     assert sheets(CSX)[f'cu_{top}'].conductivity < 5.8e7 / 1.5 and not sheets(CSX)[f'cu_{top}'].finish
+
+
+def test_gfdtd_runs_the_mesh_convergence_check():
+    """--converge is the FDTD layer's: gfdtd has its options and levels, and auto no longer hands such runs to
+    openEMS (its code was the openEMS subclass's, so gfdtd said 'not supported yet - ignored')."""
+    from types import SimpleNamespace
+    from kicad2ems.api.solver import AUTO
+    from kicad2ems_fdtd import gfdtd as conn
+    from kicad2ems_fdtd.openems.plugin import OpenEMS
+    sv = conn.GFDTD()
+    assert {'converge', 'converge_tol'} <= {o.key for o in sv.options} and {o.key for o in OpenEMS().options} >= {'converge'}
+    s = SimpleNamespace(converge=[1.0, 1.5], antenna=False, sigma=None)
+    assert sv.levels(s) == 2 and sv.validate(s) is None and sv.assess(SimpleNamespace(plan=[AUTO], s=s)) == []
+    assert 'two positive' in sv.validate(SimpleNamespace(converge=[1.0], antenna=False))

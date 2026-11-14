@@ -79,3 +79,17 @@ def test_touchstone_says_what_was_not_computed(demo_files, run_cli, tmp_path, no
     assert code == 0, err
     head = (out / 'demo_openems.s2p').read_text(encoding='utf-8').splitlines()[0]
     assert head.endswith('not computed (written as 0): S(P2,P2)'), head
+
+
+def test_an_unstable_engine_run_says_so(tmp_path):
+    """gfdtd's run ended because its fields grew without bound: execute says so (nothing read the engine's reason,
+    and the run's NaN probes then read as a port not excited, sending the user after the mesh)."""
+    from kicad2ems_fdtd.run import execute
+
+    class Unstable:
+        result = None
+
+        def Run(self, path, **kw):
+            self.result = dict(reason='unstable', steps=1200)
+    with pytest.raises(RuntimeError, match='became unstable after 1200 timesteps'):
+        execute(Unstable(), str(tmp_path / 'exc_P1'))

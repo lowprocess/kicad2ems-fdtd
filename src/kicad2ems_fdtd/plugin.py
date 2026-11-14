@@ -1,7 +1,8 @@
 """
 The FDTD solvers' common plugin: the board lowered to boundaries, a rectilinear mesh and the CSX model, run on an
 engine with openEMS's interface (engines.py); antenna mode and field dumps. A solver on an FDTD engine subclasses
-FDTD, names its engine and adds what is its own (openEMS: --converge and the import check; gfdtd: the backend).
+FDTD, names its engine and adds what is its own (openEMS: the import check; gfdtd: the backend). The mesh
+convergence check (--converge, converge.py) is the layer's: it runs on either engine.
 
     prepare  boundaries (bc), the mesh with the edge walls snapped onto it, the closed-box resonance check, the
              field-dump specs, the excitation length; the mesh preview (the first FDTD solver of the run draws it)
@@ -15,7 +16,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from kicad2ems.api.solver import Option, strlist, items, floatlist, G_DUMP
+from kicad2ems.api.solver import Option, strlist, items, floatlist, floats, G_DUMP
 from kicad2ems.api.solver import Solver, Result, Deviation, registry
 from .engines import engine_name
 
@@ -148,6 +149,16 @@ def _peak_delay(run):
     return best
 
 
+CONVERGE = [
+    Option('converge', None, "mesh convergence check: run on several mesh levels, level f with --res x f and "
+           "--fine / f (e.g. 1,1.5,2); the finest level gives the result", list,
+           conv=lambda v: floatlist(v) or None, gui='Convergence levels (e.g. 1,1.5)', group=G_MESH,
+           cli=dict(metavar='F1,F2,...')),
+    Option('converge_tol', (0.1, 2.0), "converged when the second-finest level is within this of the finest "
+           "(default 0.1 dB, 2 deg)", tuple, conv=floats(2), group=G_MESH, cli=dict(metavar='DB,DEG')),
+]
+
+
 class FDTD(Solver):
     """An FDTD solver. A subclass sets name, label, options (MESH + RUN + its own) and engine(s); tag names its
     files beside another FDTD solver's ('' for the first: <name>_antenna.json; '_gfdtd': <name>_gfdtd_antenna.json)."""
@@ -239,7 +250,16 @@ class FDTD(Solver):
 
     def levels(self, s):
         """Mesh levels solved (--converge: several)."""
-        return 1
+        return max(1, len(getattr(s, 'converge', None) or []))
+
+    def validate_converge(self, s):
+        """Why --converge cannot run as given, or None."""
+        c = getattr(s, 'converge', None)
+        if c is not None and (len(set(c)) < 2 or min(c) <= 0):
+            return f"converge needs at least two positive refinement factors, e.g. 1,1.5,2 (got {c})"
+        if c and s.antenna:
+            return "converge is not available with mode = antenna"
+        return None
 
     def estimate(self, run):
         """Cells of the mesh x timesteps (the pulse and the ring-down, at most --max-steps) x the runs, at
@@ -263,9 +283,18 @@ class FDTD(Solver):
 
     # ---- the run ---------------------------------------------------------------------------------------
     def mesh(self, run, p, **kw):
-        """The mesh that gives the result (openEMS: also the coarser --converge levels, in p.levels)."""
-        from .mesh import auto_mesh
-        return auto_mesh(run.m, run.fmin, run.fmax, res=run.s.res, fine=run.s.fine, **kw)
+        """The mesh that gives the result; with --converge also the coarser levels, in p.levels (the finest gives
+        the result)."""
+        if not getattr(run.s, 'converge', None):
+            from .mesh import auto_mesh
+            return auto_mesh(run.m, run.fmin, run.fmax, res=run.s.res, fine=run.s.fine, **kw)
+        from .converge import mesh_levels, describe_levels
+        p.levels = mesh_levels(run.m, run.fmin, run.fmax, sorted(set(run.s.converge)), res=run.s.res,
+                               fine=run.s.fine, **kw)
+        run.log("\n".join(describe_levels(p.levels)))
+        self.summary(run)['levels'] = [dict(factor=f, cells=lm['info']['cells'], fine_mm=lm['info']['fine_mm'],
+                                            dt_ps=lm['info']['dt_ps']) for f, lm in p.levels]
+        return p.levels[-1][1]
 
     def prepare(self, run):
         from .boundaries import resolve_bc, cavity_check
@@ -324,7 +353,34 @@ class FDTD(Solver):
         return jobs
 
     def coarse(self, run, p, jobs, run_kw):
-        """Runs before the result's (openEMS: the coarser --converge levels)."""
+        """Runs before the result's: the coarser --converge levels, on this engine (run_kw names it)."""
+        from .run import run_excitations
+        from kicad2ems.api.solver import mixed_mode, fill_reciprocal
+        for f, lm in (p.levels or [])[:-1]:
+            run.log(f"--- mesh level x{f:g} ({lm['info']['cells'] / 1e6:.2f} M cells) ---")
+            r = run_excitations(run.m, lm, run.freq, p.excite, p.bc, os.path.join(run.s.out, 'converge', f"L{f:g}"),
+                                jobs=jobs, **run_kw)
+            fill_reciprocal(r.S, p.excite)
+            p.coarse.append((f, mixed_mode(r.S, run.m)[0]))
+        if p.levels:
+            run.log(f"--- mesh level x{p.levels[-1][0]:g} (finest: the result) ---")
+
+    def _convergence(self, run, p, res):
+        from .converge import compare_levels, verdict
+        from kicad2ems.api.solver import plot_convergence
+        tol_db, tol_deg = run.s.converge_tol
+        dev = compare_levels([S_ for _, S_ in p.coarse] + [res.S], res.names) + [{}]    # finest: the reference
+        lines, ok = verdict([f for f, _ in p.levels], dev[:-1], tol_db, tol_deg)
+        run.log("\n".join(lines))
+        if not ok:
+            run.log("WARNING: mesh not converged (see the convergence table)")
+        run.figure(plot_convergence(run.freq, [(f"x{f:g}", S_) for f, S_ in p.coarse] +
+                                    [(f"x{p.levels[-1][0]:g}", res.S)], res.names, f"{run.name} - mesh convergence"),
+                   self.tag + '_converge.png' if getattr(self, 'tag', '') else '_converge.png', 'converge',
+                   'mesh convergence')
+        self.summary(run)['convergence'] = dict(converged=ok, tol_db=tol_db, tol_deg=tol_deg,
+                                                levels=[dict(factor=f, cells=lm['info']['cells'], **d)
+                                                        for (f, lm), d in zip(p.levels, dev)])
 
     def solve(self, run, p):
         from .model import port_index
@@ -430,6 +486,8 @@ class FDTD(Solver):
         if p.ant:
             self.antenna(run, p)
 
+        if p.levels:                                                # --converge: the levels compared
+            self._convergence(run, p, res)
     def dump_outputs(self, run, p):
         """The field maps (PNG, and animations with --dump-animate) of the frequency-domain plane dumps, named with
         the tag beside another FDTD solver's."""

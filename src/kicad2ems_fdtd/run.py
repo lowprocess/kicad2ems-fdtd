@@ -243,6 +243,11 @@ def execute(FDTD, path, threads=0, verbose=1, progress=None, watch=None):
             pw.stop()
     if os.path.exists(os.path.join(path, 'ABORT')):
         os.remove(os.path.join(path, 'ABORT'))
+    res = getattr(FDTD, 'result', None) or {}                   # gfdtd's: how its run ended
+    if res.get('reason') == 'unstable':
+        raise RuntimeError(f"the FDTD run in {path} became unstable after {res.get('steps')} timesteps (its fields "
+                           f"grew without bound): a lumped part too small for the cells, or a cell or time step "
+                           f"the mesh makes too large; see its openems.log")
     return time.time() - t1
 
 
@@ -316,6 +321,9 @@ def _run_port(k, m, mesh, freq, bc, out_dir, end_db=-40, sigma=None, rough=None,
         write_norm(path, norm)
     for p in ports:
         p.CalcPort(path, freq)
+    if not all(np.isfinite(p.uf_inc).all() and np.isfinite(p.uf_ref).all() for p in ports):
+        raise RuntimeError(f"the FDTD run of port {m.ports[k].name} became unstable (its port voltages are not "
+                           f"finite): see the run's openems.log")
     if not np.any(np.abs(ports[k].uf_inc) > 0):                 # nothing went in: no S column to compute
         raise RuntimeError(f"port {m.ports[k].name} was not excited (no incident wave: its box catches no mesh "
                            f"edges; see the run's openems.log, 'Voltage excitations')")

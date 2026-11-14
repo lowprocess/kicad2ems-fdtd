@@ -7,13 +7,13 @@ results to <name>_gfdtd_antenna.json.
 
 --sigma: openEMS's conducting-sheet model on gfdtd 261104 or later (engine API 1.1, LOSS_API); before that its
 copper is PEC, and --solvers auto gives --sigma runs to openEMS. --rough: the sheets' own (Hammerstad, a wideband
-fit) from engine API 1.2 (ROUGH_API), else as the conductivity at the band centre, as openEMS. Not yet: the
---converge levels.
+fit) from engine API 1.2 (ROUGH_API), else as the conductivity at the band centre, as openEMS. --converge: the
+FDTD layer's mesh levels, run on gfdtd.
 """
 import os
 
 from kicad2ems.api.solver import Option, AUTO
-from .plugin import FDTD, MESH, RUN
+from .plugin import FDTD, MESH, RUN, CONVERGE
 
 G = 'gfdtd'                                     # its section in kicad2ems's GUI
 ENGINE_API = (1, 0)                             # the gfdtd API this connection is written against (gfdtd.API_VERSION)
@@ -31,7 +31,7 @@ GPU_BACKENDS = ('cupy', 'vulkan')
 class GFDTD(FDTD):
     api = (2, 4)                    # kicad2ems.api (2.4: resolve_finish, the finish row)
     name, aliases, label = 'gfdtd', ('gpu-fdtd',), 'gfdtd (GPU FDTD)'
-    in_auto = True                  # auto: picked over openEMS where it can (no --converge or --drive; --sigma: LOSS_API)
+    in_auto = True                  # auto: picked over openEMS where it can (no --drive; --sigma: LOSS_API)
     in_all = False                  # --solvers all: openEMS's model again, named on its own
     previewed = False
     order = 40                      # after openEMS and mom25d in kicad2ems's lists
@@ -45,7 +45,7 @@ class GFDTD(FDTD):
                                "at the band centre)",
                         dispersion='yes: fitted at mid-band, or wideband Debye',
                         antenna='yes (a phased drive: a run per driven port)')
-    options = MESH + RUN + [
+    options = MESH + CONVERGE + RUN + [
         Option('gfdtd_backend', 'auto', "gfdtd: where it runs - auto (the GPU when Vulkan or CuPy finds one, else the "
                "CPU), gpu (Vulkan through slangpy, else CuPy; CuPy first on NVIDIA CUDA) or cpu (the compiled core: "
                "python -m gfdtd.core.build; else numpy, slow); GFDTD_BACKEND=cupy|vulkan picks the GPU's; its "
@@ -116,7 +116,7 @@ class GFDTD(FDTD):
                     f"{'.'.join(map(str, gfdtd.API_VERSION))}", what]
 
     def validate(self, s):
-        return None
+        return self.validate_converge(s)
 
     def assess(self, run):
         """Named, gfdtd runs without what it lacks (with a note, prepare); for auto, those runs are openEMS's."""
@@ -124,8 +124,7 @@ class GFDTD(FDTD):
             return []
         s = run.s
         return [f"{what}: openEMS's" for what, on in (("--sigma (this gfdtd's copper is PEC: update gfdtd)",
-                                                     s.sigma and not self.conductor_loss),
-                                                    ("--converge", getattr(s, "converge", None))) if on]
+                                                     s.sigma and not self.conductor_loss),) if on]
 
     def estimate(self, run):
         """openEMS's estimate (the same mesh and timesteps), at gfdtd's speed on the backend it would use."""
@@ -156,8 +155,7 @@ class GFDTD(FDTD):
     def prepare(self, run):
         p = super().prepare(run)
         s = run.s
-        for what, on in (("--converge", getattr(s, 'converge', None)),
-                         ("--sigma (this gfdtd's copper is PEC: update gfdtd)", s.sigma and not self.conductor_loss)):
+        for what, on in (("--sigma (this gfdtd's copper is PEC: update gfdtd)", s.sigma and not self.conductor_loss),):
             if on:
                 run.log(f"gfdtd: {what} not supported yet - ignored")
         self.summary(run)['backend'] = s.gfdtd_backend
