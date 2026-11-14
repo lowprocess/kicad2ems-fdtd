@@ -68,10 +68,10 @@ MESH = [
            conv=lambda v: str(v).lower(), gui='Mesh zone around the signal (on / mm / off)', group=G_MESH),
     Option('nz', 4, "minimum cells through each dielectric layer (default {default})", int,
            gui='Cells through each dielectric', group=G_MESH),
-    Option('nz_mask', None, "minimum cells through the solder mask, with --mask (default: --nz). The mask's cells "
-           "set the time step: on the hairpin, 4 cells through its 10 um made the run 17x longer, 2 cells 7x, 1 cell 3x, "
-           "all within 1 MHz of each other", int,
-           gui='Cells through the solder mask (empty: as dielectrics)', group=G_MESH),
+    Option('nz_mask', 1, "minimum cells through the solder mask, with --mask (default {default}; it had been --nz). "
+           "The mask's cells set the time step: on the hairpin, 4 cells through its 10 um made the run 17x longer, "
+           "2 cells 7x, 1 cell 3x, all within 1 MHz of each other", int,
+           gui='Cells through the solder mask', group=G_MESH),
     Option('z_sheet', 1.0, "first z cell either side of a copper layer with signal edges, as a multiple of the "
            "fine cell, graded into the dielectric (default {default}; 0: uniform, --nz cells)", float,
            gui='First z cell at signal copper (x fine)', group=G_MESH),
