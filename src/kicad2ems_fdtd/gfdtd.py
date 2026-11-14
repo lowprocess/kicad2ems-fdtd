@@ -21,7 +21,7 @@ LOSS_API = (1, 1)                               # from this gfdtd API on, conduc
 ROUGH_API = (1, 2)                              # ... and rough (ConductingSheet(roughness=), a wideband fit)
 FINISH_API = (1, 3)                             # ... and finished, and thick copper's faces (finish=, face=)
 # gfdtd's speed over openEMS's estimate (24 threads), per backend: the examples' runs on an RX 7800 XT and an
-# i7-13700K, 8-70x on the GPU and 2-2.3x on the core (docs/gfdtd.md#speed); numpy ~10x slower than openEMS.
+# i7-13700K, 8-20x on the GPU and 2-2.3x on the core (docs/gfdtd.md#speed); numpy ~10x slower than openEMS.
 # Vulkan runs the same kernels within a few per cent of CuPy's speed there. START: seconds of setup a run (the GPU
 # kernels, the core's threads)
 SPEEDUP, START = dict(cupy=8.0, vulkan=8.0, core=2.0, numpy=0.1), 2.0
