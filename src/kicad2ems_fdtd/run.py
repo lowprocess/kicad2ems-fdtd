@@ -333,6 +333,18 @@ def _run_port(k, m, mesh, freq, bc, out_dir, end_db=-40, sigma=None, rough=None,
 
 
 
+_POOLS = {}
+
+
+def _thread_pool(jobs, make):
+    """The threads an engine that runs in threads (gfdtd) is given, kept for the next solve: each makes its GPU
+    device and pipelines once (emsdev's slang_device, per thread: about 0.3 s), so a --converge level, a sweep's
+    next point or the window's next run does not make them again (R-D4)."""
+    if jobs not in _POOLS:
+        _POOLS[jobs] = make(jobs, thread_name_prefix=f'fdtd{jobs}')
+    return _POOLS[jobs]
+
+
 def run_excitations(m, mesh, freq, excite, bc, out_dir, end_db=-40, sigma=None, rough=None, copper_kw=None, threads=0, xml_path=None,
                     dumps=(), dump_runs=None, jobs=1, diel='fixed', diel_fref=1e9, max_steps=1_000_000, progress=None,
                     exc_fmax=None, setup=None, analyse=None, log=print, end_on='ports', engine=None):
@@ -402,11 +414,14 @@ def run_excitations(m, mesh, freq, excite, bc, out_dir, end_db=-40, sigma=None, 
                         Tracker(m.ports[t['k']].name, end_db, max_steps)) for t in tasks], progress['mode'],
                       on_status=progress.get('on_status')).start()
     try:
-        pool = ThreadPoolExecutor(jobs) if in_threads else \
-            ProcessPoolExecutor(jobs, mp_context=multiprocessing.get_context('spawn'))
-        with pool as ex:
+        if in_threads:                                              # kept: each thread's GPU device with it
+            ex = _thread_pool(jobs, ThreadPoolExecutor)
             futs = [ex.submit(_run_port, **t, **common, verbose=1, progress=dict(mode='file')) for t in tasks]
             outs = [f.result() for f in as_completed(futs)]
+        else:
+            with ProcessPoolExecutor(jobs, mp_context=multiprocessing.get_context('spawn')) as ex:
+                futs = [ex.submit(_run_port, **t, **common, verbose=1, progress=dict(mode='file')) for t in tasks]
+                outs = [f.result() for f in as_completed(futs)]
     finally:
         if mon:
             mon.stop()
