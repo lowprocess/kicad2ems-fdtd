@@ -5,7 +5,7 @@ ports, the parts and the end criteria are the FDTD settings shared with openEMS;
 to <out>/gfdtd/exc_<port>, the CSX file to <name>_gfdtd.xml (also runnable with `python -m gfdtd`), the antenna
 results to <name>_gfdtd_antenna.json.
 
---sigma: openEMS's conducting-sheet model on gfdtd 261104 or later (engine API 1.1, LOSS_API); before that its
+--sigma: openEMS's conducting-sheet model on gfdtd's engine API 1.1 or later (LOSS_API); before that its
 copper is PEC, and --solvers auto gives --sigma runs to openEMS. --rough: the sheets' own (Hammerstad, a wideband
 fit) from engine API 1.2 (ROUGH_API), else as the conductivity at the band centre, as openEMS. --converge: the
 FDTD layer's mesh levels, run on gfdtd.
@@ -37,11 +37,11 @@ class GFDTD(FDTD):
     order = 40                      # after openEMS and mom25d in kicad2ems's lists
     tag = '_gfdtd'
     capabilities = dict(FDTD.capabilities,
-                        conductor_loss="yes: openEMS's conducting-sheet model (gfdtd 261104 or later; PEC before)",
-                        roughness="yes: Hammerstad over the band, a wideband fit of the sheets (gfdtd 261104-r1 or "
-                                  "later; else at the band centre)",
+                        conductor_loss="yes: openEMS's conducting-sheet model (gfdtd's engine API 1.1 or later; PEC before)",
+                        roughness="yes: Hammerstad over the band, a wideband fit of the sheets (gfdtd's engine API "
+                                  "1.2 or later; else at the band centre)",
                         finish="yes with --thickness on: the outer faces' own sheets, a wideband fit; else the outer "
-                               "layers' sheets weighted by the strip's finished share (gfdtd 261104-r2 or later; else "
+                               "layers' sheets weighted by the strip's finished share (gfdtd's engine API 1.3 or later; else "
                                "at the band centre)",
                         dispersion='yes: fitted at mid-band, or wideband Debye',
                         antenna='yes (a phased drive: a run per driven port)')
@@ -174,7 +174,7 @@ def engine_compatible():
     want = '.'.join(map(str, ENGINE_API))
     have = getattr(gfdtd, 'API_VERSION', None)
     if have is None:
-        return f"gfdtd {gfdtd.__version__} has no API version (before 261028): update gfdtd (kicad2ems-fdtd wants {want})"
+        return f"gfdtd {gfdtd.__version__} has no API version (before 261028-r1): update gfdtd (kicad2ems-fdtd wants {want})"
     have = tuple(have)
     if have[0] == ENGINE_API[0] and have[1] >= ENGINE_API[1]:
         return None
