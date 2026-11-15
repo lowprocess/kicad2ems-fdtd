@@ -173,11 +173,14 @@ def _part_nets(m, pt, reach=0.1):
 def port_decay(path, window, z=50.0):
     """(last probe time s, max over ports of the signal power in the last `window` s relative to its peak,
     dB) from the port probe files of a run folder, or None when there are none yet."""
+    import warnings
     peak, last, tmax = 0.0, 0.0, None
     for fu in sorted(glob.glob(os.path.join(path, 'port_ut*'))):
         fi = fu.replace('port_ut', 'port_it')
-        u = np.loadtxt(fu, comments='%', ndmin=2)
-        i = np.loadtxt(fi, comments='%', ndmin=2) if os.path.exists(fi) else None
+        with warnings.catch_warnings():                             # a file the run has only its header in yet
+            warnings.simplefilter('ignore', UserWarning)
+            u = np.loadtxt(fu, comments='%', ndmin=2)
+            i = np.loadtxt(fi, comments='%', ndmin=2) if os.path.exists(fi) else None
         n = len(u) if i is None else min(len(u), len(i))
         if n < 4:
             return None
