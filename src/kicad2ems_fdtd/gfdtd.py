@@ -55,6 +55,11 @@ class GFDTD(FDTD):
                "default: one GPU. Worth it with GPUs of like speed: a second GPU 4.7x slower finishes its one "
                "excitation of four after the first has done the other three", str, name='gpus',
                gui='GPUs for the excitations', group=G),
+        Option('gfdtd_timestep', 'auto', "gfdtd's time step: auto (default: the operator's own leapfrog limit for "
+               "models of 1 M cells or more, or one measured before; the vacuum Courant rule of the smallest cells "
+               "otherwise), exact (the operator's limit always: 1.19-1.29 times the step on the examples, measured "
+               "by Lanczos in 0.6-2 s once a model and kept; worth it on runs longer than ~10 s) or courant",
+               choices=('auto', 'exact', 'courant'), name='timestep', gui='Time step', group=G),
     ]
 
     @property
@@ -178,6 +183,7 @@ class GFDTD(FDTD):
             if on:
                 run.log(f"gfdtd: {what} not supported yet - ignored")
         self.summary(run)['backend'] = s.gfdtd_backend
+        os.environ['GFDTD_TIMESTEP'] = getattr(s, 'gfdtd_timestep', 'auto') or 'auto'     # (R-D6; workers inherit it)
         run.log(f"gfdtd: {p.grid['info']['cells'] / 1e6:.2f} M cells, boundaries {','.join(p.bc)}, {self.check(s)[1]}")
         return p
 

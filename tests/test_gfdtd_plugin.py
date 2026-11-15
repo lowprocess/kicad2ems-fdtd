@@ -14,9 +14,9 @@ def test_plugin_registered():
     assert get('gpu-fdtd') is sv and sv.in_auto and not sv.in_all
     assert sv.check()[0]                                              # numpy at worst
     assert sv.capabilities['antenna'].startswith('yes')
-    assert [o.key for o in sv.options[-2:]] == ['gfdtd_backend', 'gfdtd_gpus']    # its own, after the shared ones
+    assert [o.key for o in sv.options[-3:]] == ['gfdtd_backend', 'gfdtd_gpus', 'gfdtd_timestep']    # its own, last
     shared = {o.key: o for o in registry()['openems'].options}
-    assert all(shared[o.key] is o for o in sv.options[:-2])
+    assert all(shared[o.key] is o for o in sv.options[:-3])
 
 
 def test_engine_api_and_run_dir():
