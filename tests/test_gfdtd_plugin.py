@@ -210,3 +210,21 @@ def test_the_excitations_go_out_to_the_gpus_named(monkeypatch):
     G.bind_process([1, 0], counter, lock)
     assert os.environ['EMSDEV_VULKAN_DEVICE'] == '0' and counter.value == 2
 
+
+
+def test_the_runs_shared_by_each_gpu_s_speed(tmp_path, monkeypatch):
+    """R-D9: each run to the GPU that would finish it first, by the speeds measured before (kept by GPU name): a GPU
+    4.7 times slower gets none of two runs and one of six; GPUs never measured share alike."""
+    from kicad2ems_fdtd import gfdtd as conn
+    fast, slow = 9300.0, 1970.0
+    assert conn.share([0, 1], 2, {0: fast, 1: slow}) == {0: [0, 1], 1: []}
+    got = conn.share([0, 1], 6, {0: fast, 1: slow})
+    assert len(got[0]) == 5 and len(got[1]) == 1
+    assert conn.share([0, 1], 4, {0: None, 1: None}) == {0: [0, 2], 1: [1, 3]}
+    assert conn.share([0, 1], 2, {0: fast, 1: None}) == {0: [0], 1: [1]}          # (the new one measured)
+    monkeypatch.setenv('XDG_CACHE_HOME', str(tmp_path))
+    monkeypatch.setattr('gfdtd.engine.vulkan_gpus', lambda: [(0, 'Fast GPU'), (1, 'Slow GPU')])
+    assert conn.gpu_speeds([0, 1]) == {0: None, 1: None}
+    conn.record_speed(1, 2000.0)
+    conn.record_speed(1, 1940.0)
+    assert conn.gpu_speeds([0, 1]) == {0: None, 1: 1970.0}

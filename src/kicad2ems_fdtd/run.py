@@ -437,6 +437,30 @@ def run_excitations(m, mesh, freq, excite, bc, out_dir, end_db=-40, sigma=None, 
             ex = _thread_pool(jobs, ThreadPoolExecutor)
             futs = [ex.submit(_run_port, **t, **common, verbose=1, progress=dict(mode='file')) for t in tasks]
             outs = [f.result() for f in as_completed(futs)]
+        elif slots and hasattr(mod, 'share'):                          # a process a GPU, the runs shared by speed
+            ctx = multiprocessing.get_context('spawn')
+            plan = mod.share(slots, len(tasks))
+            log(f"{who}: runs a GPU, by their measured speeds: " + ', '.join(f"{k}: {len(v)}" for k, v in plan.items()))
+            pools, futs = [], []
+            try:
+                for k, idx in plan.items():
+                    if not idx:
+                        continue
+                    ex = ProcessPoolExecutor(1, mp_context=ctx, initializer=mod.bind_process,
+                                             initargs=([k], ctx.Value('i', 0), ctx.Lock()))
+                    pools.append(ex)
+                    futs += [(k, ex.submit(_run_port, **tasks[i], **common, verbose=1, progress=dict(mode='file')))
+                             for i in idx]
+                outs = []
+                for k, f in futs:
+                    out = f.result()
+                    outs.append(out)
+                    seconds, steps = out[4], out[5]
+                    if seconds and steps:                           # (each GPU's speed, for the next plan)
+                        mod.record_speed(k, mesh['info']['cells'] * steps / seconds / 1e6)
+            finally:
+                for ex in pools:
+                    ex.shutdown()
         else:
             ctx = multiprocessing.get_context('spawn')
             kw = dict(initializer=mod.bind_process, initargs=(slots, ctx.Value('i', 0), ctx.Lock())) if slots else {}

@@ -50,10 +50,11 @@ class GFDTD(FDTD):
                "CPU), gpu (Vulkan through slangpy, else CuPy; CuPy first on NVIDIA CUDA) or cpu (the compiled core: "
                "python -m gfdtd.core.build; else numpy, slow); GFDTD_BACKEND=cupy|vulkan picks the GPU's; its "
                "mesh and run settings are the FDTD ones shared with openEMS (--res, --end-db, ...)", choices=('auto', 'gpu', 'cpu'), name='backend', gui='Runs on', group=G),
-        Option('gfdtd_gpus', '', "gfdtd on Vulkan: the GPUs its excitations are shared out to, a process each taking the "
-               "next as it comes free - all (every discrete GPU with the kernels' features) or their indices (0,1); "
-               "default: one GPU. Worth it with GPUs of like speed: a second GPU 4.7x slower finishes its one "
-               "excitation of four after the first has done the other three", str, name='gpus',
+        Option('gfdtd_gpus', '', "gfdtd on Vulkan: the GPUs its excitations are shared out to, a process each - all "
+               "(every discrete GPU with the kernels' features) or their indices (0,1); default: one GPU. The runs go "
+               "by each GPU's speed measured on earlier runs (each to the GPU that would finish it first; one never "
+               "measured is tried): a GPU too slow to help gets none, and one GPU alone runs them side by side", str,
+               name='gpus',
                gui='GPUs for the excitations', group=G),
         Option('gfdtd_timestep', 'auto', "gfdtd's time step: auto (default: the operator's own leapfrog limit for "
                "models of 1 M cells or more, or one measured before; the vacuum Courant rule of the smallest cells "
@@ -156,9 +157,17 @@ class GFDTD(FDTD):
         where = resolve_backend(self.engine(s).partition(':')[2])
         slots = gpu_slots(getattr(s, 'gfdtd_gpus', '') or '', len(p.excite)) if where == 'vulkan' else None
         if slots:
-            GPU_SLOTS = slots
             from gfdtd.engine import vulkan_gpus
             names = dict(vulkan_gpus())
+            used = [k for k, v in share(slots, len(p.excite)).items() if v]
+            if len(used) == 1:                                      # one GPU by the speeds: its runs side by side
+                os.environ['EMSDEV_VULKAN_DEVICE'] = str(used[0])   # there, as without --gfdtd-gpus
+                sp = gpu_speeds(slots)
+                run.log(f"gfdtd: by the GPUs' measured speeds ({', '.join(f'{names.get(k, k)} {sp[k]:.0f}' for k in slots if sp[k])}"
+                        f" M cells/s) the others would finish later: {names.get(used[0], used[0])} alone")
+                slots = None
+        if slots:
+            GPU_SLOTS = slots
             run.log(f"gfdtd: the excitations shared out to {len(slots)} GPUs, a process each: "
                     + ', '.join(names.get(k, str(k)) for k in slots))
             return len(slots)
@@ -215,6 +224,71 @@ def gpu_slots(spec, runs):
                              f"{', '.join(map(str, usable)) or 'none'})")
     picked = list(dict.fromkeys(picked))[:max(1, int(runs))]
     return picked if len(picked) > 1 else None
+
+
+SPEED_FILE = 'gpu_speed.json'       # under gfdtd's cache folder: each GPU's measured M cell updates a second
+
+
+def _speed_path():
+    base = os.environ.get('XDG_CACHE_HOME') or os.path.join(os.path.expanduser('~'), '.cache')
+    return os.path.join(base, 'gfdtd', SPEED_FILE)
+
+
+def gpu_speeds(slots):
+    """{slot: M cell updates / s} as measured on earlier runs (by the GPU's name), None where never measured."""
+    import json
+    try:
+        from gfdtd.engine import vulkan_gpus
+        names = dict(vulkan_gpus())
+    except ImportError:
+        names = {}
+    try:
+        with open(_speed_path(), encoding='utf-8') as fh:
+            kept = json.load(fh)
+    except (OSError, ValueError):
+        kept = {}
+    return {k: kept.get(names.get(k, str(k))) for k in slots}
+
+
+def record_speed(slot, mcps):
+    """A run's speed on GPU `slot`, kept by its name (the mean with what was kept, weighted 1:1)."""
+    import json
+    try:
+        from gfdtd.engine import vulkan_gpus
+        name = dict(vulkan_gpus()).get(slot, str(slot))
+    except ImportError:
+        name = str(slot)
+    path = _speed_path()
+    try:
+        with open(path, encoding='utf-8') as fh:
+            kept = json.load(fh)
+    except (OSError, ValueError):
+        kept = {}
+    old = kept.get(name)
+    kept[name] = round(float(mcps) if not old else 0.5 * (old + float(mcps)), 1)
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, 'w', encoding='utf-8') as fh:
+            json.dump(kept, fh, indent=1)
+    except OSError:
+        pass
+
+
+def share(slots, n, speeds=None):
+    """{slot: [run positions 0..n-1]}: each run to the GPU that would finish it first (its runs so far plus this one
+    over its speed; the runs taken as alike). A GPU never measured counts as fast as the fastest (so it is measured);
+    with no speeds at all, round the GPUs. A GPU too slow to finish a run before the others would is given none
+    (R-D9: the 4.7 times slower one had taken the second of two runs)."""
+    speeds = dict(speeds if speeds is not None else gpu_speeds(slots))
+    known = [v for v in speeds.values() if v]
+    top = max(known) if known else 1.0
+    sp = {k: float(speeds.get(k) or top) for k in slots}
+    out, done = {k: [] for k in slots}, {k: 0 for k in slots}
+    for i in range(n):
+        k = min(slots, key=lambda q: ((done[q] + 1) / sp[q], slots.index(q)))
+        out[k].append(i)
+        done[k] += 1
+    return out
 
 
 def bind_process(slots, counter, lock):
