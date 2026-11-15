@@ -473,6 +473,13 @@ class FDTD(Solver):
     def about(self, s):
         return f"{engine_name(self.engine(s))[1]}, 3D FDTD"
 
+    def reusable(self, run):
+        """An earlier run's S may stand for this one's solve (kicad2ems 2.12) unless this run asks for what only a
+        solve leaves: field dumps, the far field (antenna mode) or the mesh levels of --converge. (Its outputs
+        then are not written: the CSX file and the per-run times are the earlier run's.)"""
+        s = run.s
+        return not (getattr(run, 'antenna', False) or s.dump or getattr(s, 'converge', None))
+
     def outputs(self, run, p, res):
         from .run import run_dir, log_path
         s, m, r = run.s, run.m, p.result
