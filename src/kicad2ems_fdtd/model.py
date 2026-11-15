@@ -23,7 +23,8 @@ def _fl(v):
 
 
 def build_fdtd(m, mesh, fmin, fmax, excite, bc=('MUR',) * 6, end_db=-40, sigma=None, max_steps=1_000_000,
-               dumps=(), diel='fixed', diel_fref=1e9, exc_fmax=None, api=None, rough=None, copper_kw=None):
+               dumps=(), diel='fixed', diel_fref=1e9, exc_fmax=None, api=None, rough=None, copper_kw=None,
+               line_plan=None):
     """sigma: copper conductivity (conducting sheets; None: PEC). rough: um RMS, the sheets' own roughness (an
     engine with it: gfdtd 1.2; None: smooth). diel: 'fixed' (loss as a conductivity fitted at the band centre) or 'wideband' (Djordjevic-Sarkar
     model matched at diel_fref Hz, as Debye poles; see dielectric.py). exc_fmax: upper edge of the
@@ -32,7 +33,8 @@ def build_fdtd(m, mesh, fmin, fmax, excite, bc=('MUR',) * 6, end_db=-40, sigma=N
     calls). copper_kw: dict(faces=, finish=) from the plugin's copper_kw(): faces marks thick copper's sheets as
     faces (gfdtd 1.3); finish puts the surface finish on the outer layers - with thick copper on their outer face's
     own sheet, else on their sheets weighted by the strip's share; as the sheets' own (finish['wideband'], gfdtd
-    1.3) or as the conductivity of the same loss at the band centre."""
+    1.3) or as the conductivity of the same loss at the band centre. line_plan: lineport.plan_ports' plan, the line
+    probes behind those ports (R-E1); then (FDTD, CSX, ports, probes {port index: probe port}) is returned."""
     if api is None:
         from .engines import engine_api
         api = engine_api(None)
@@ -88,6 +90,7 @@ def build_fdtd(m, mesh, fmin, fmax, excite, bc=('MUR',) * 6, end_db=-40, sigma=N
                            priority=2)
     ckw = copper_kw or {}
     fin = ckw.get('finish') if sigma else None
+    cu_props = {}                                                   # sheet copper's property by layer (line probes)
     for lay, ps in m.copper.items():
         t = m.cu_t.get(lay, 0.0)
         slab = thick.faces(m, th, lay) if th and t > 0 else None
@@ -108,6 +111,8 @@ def build_fdtd(m, mesh, fmin, fmax, excite, bc=('MUR',) * 6, end_db=-40, sigma=N
                      CSX.AddConductingSheet(f"cu_{lay}", conductivity=_f(sigma), thickness=_f(t * 1e-3), **rkw))
         else:
             metal = CSX.AddMetal(f"cu_{lay}")
+        if not slab:
+            cu_props[lay] = metal
         for p in ps:
             for q in split_holes(p):
                 x, y = q.exterior.xy
@@ -173,6 +178,9 @@ def build_fdtd(m, mesh, fmin, fmax, excite, bc=('MUR',) * 6, end_db=-40, sigma=N
     if dumps:
         from kicad2ems.api.solver import add_dumps
         add_dumps(CSX, dumps)
+    if line_plan is not None:
+        from . import lineport
+        return FDTD, CSX, ports, lineport.add(FDTD, cu_props, line_plan)
     return FDTD, CSX, ports
 
 

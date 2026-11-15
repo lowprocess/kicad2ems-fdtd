@@ -269,6 +269,7 @@ class RunResult:
     def __init__(self, S):
         self.S, self.dump_files, self.dump_norm, self.seconds, self.steps, self.extra = S, {}, {}, {}, {}, {}
         self.ended = {}                             # {port: dict(reason='ports', t_ns, level_db)} when PortWatch ended it
+        self.lines = {}                             # {port: its run's line-probe readings} (R-E1, lineport.py)
 
 
 
@@ -282,18 +283,22 @@ def run_dir(m, k, out_dir, engine=None):
 
 def _run_port(k, m, mesh, freq, bc, out_dir, end_db=-40, sigma=None, rough=None, copper_kw=None, threads=0, xml_path=None, dumps=(),
               verbose=1, diel='fixed', diel_fref=1e9, max_steps=1_000_000, progress=None, exc_fmax=None,
-              setup=None, analyse=None, end_on='ports', engine=None):
+              setup=None, analyse=None, end_on='ports', engine=None, line_plan=None):
     """One openEMS run with port k excited (top level, so it can run in a worker process); engine: another FDTD
     engine with openEMS's interface (engine_api: 'gfdtd'), run the same way. setup(FDTD, CSX)
     may add to the model before the run (antenna mode: the NF2FF box) and its return value is handed to
     analyse(path, ports, token, k, col) after the run. Returns (k, S column (nf, n), {(port, dump): path},
-    {freq: incident voltage} or None, seconds, steps taken, what analyse returned or None)."""
+    {freq: incident voltage} or None, seconds, steps taken, what analyse returned or None, the line probes'
+    readings or None). line_plan: lineport.plan_ports' plan (R-E1): its probes read, with every lumped port's
+    a and b, as dict(probes={index: lineport.read's}, lumped=(a, b) (n, nf))."""
     fmin, fmax = freq[0], freq[-1]
     path = run_dir(m, k, out_dir, engine)
-    FDTD, CSX, ports = build_fdtd(m, mesh, fmin, fmax, k, bc=bc, end_db=end_db, sigma=sigma, rough=rough,
-                                  copper_kw=copper_kw, dumps=dumps,
-                                  diel=diel, diel_fref=diel_fref, max_steps=max_steps, exc_fmax=exc_fmax,
-                                  api=engine_api(engine))
+    built = build_fdtd(m, mesh, fmin, fmax, k, bc=bc, end_db=end_db, sigma=sigma, rough=rough,
+                       copper_kw=copper_kw, dumps=dumps,
+                       diel=diel, diel_fref=diel_fref, max_steps=max_steps, exc_fmax=exc_fmax,
+                       api=engine_api(engine), line_plan=line_plan or None)
+    FDTD, CSX, ports = built[:3]
+    probes = built[3] if len(built) > 3 else None
     token = setup(FDTD, CSX) if setup else None
     os.makedirs(path, exist_ok=True)
     if dumps:
@@ -332,7 +337,12 @@ def _run_port(k, m, mesh, freq, bc, out_dir, end_db=-40, sigma=None, rough=None,
                            f"edges; see the run's openems.log, 'Voltage excitations')")
     col = np.array([p.uf_ref / ports[k].uf_inc for p in ports]).T
     extra = analyse(path=path, ports=ports, token=token, k=k, col=col) if analyse else None
-    return k, col, files, norm, seconds, steps_taken(path, mesh['info']['dt_ps']), extra
+    lines = None
+    if probes:
+        from . import lineport
+        lines = dict(probes=lineport.read(probes, path, freq),
+                     lumped=(np.array([p.uf_inc for p in ports]), np.array([p.uf_ref for p in ports])))
+    return k, col, files, norm, seconds, steps_taken(path, mesh['info']['dt_ps']), extra, lines
 
 
 
@@ -350,12 +360,13 @@ def _thread_pool(jobs, make):
 
 def run_excitations(m, mesh, freq, excite, bc, out_dir, end_db=-40, sigma=None, rough=None, copper_kw=None, threads=0, xml_path=None,
                     dumps=(), dump_runs=None, jobs=1, diel='fixed', diel_fref=1e9, max_steps=1_000_000, progress=None,
-                    exc_fmax=None, setup=None, analyse=None, log=print, end_on='ports', engine=None):
+                    exc_fmax=None, setup=None, analyse=None, log=print, end_on='ports', engine=None, line_plan=None):
     """One openEMS run per excited port, `jobs` of them at a time (separate processes; without `threads`,
     half the logical CPUs are shared between them; gfdtd: threads of this process, on the GPU a stream each). Field dumps are added to the runs in dump_runs (port
     indices; default: the first excited port). progress: None or dict(mode='bar' | 'raw'[, on_status]) -
     see execute(). setup / analyse: hooks of every run (see _run_port; picklable for jobs > 1). engine: see
-    _run_port. Returns a RunResult."""
+    _run_port. line_plan: lineport.plan_ports' (R-E1): each run's probe readings in RunResult.lines. Returns a
+    RunResult."""
     folder, who = engine_name(engine)
     dump_runs = [excite[0]] if dump_runs is None else dump_runs
     n = len(m.ports)
@@ -369,8 +380,10 @@ def run_excitations(m, mesh, freq, excite, bc, out_dir, end_db=-40, sigma=None, 
              for k in excite]
 
     def collect(out):
-        k, col, files, norm, seconds, steps, extra = out
+        k, col, files, norm, seconds, steps, extra, lines = out
         name = m.ports[k].name
+        if lines is not None:
+            res.lines[name] = lines
         res.S[:, :, k] = col
         res.dump_files.update(files)
         res.seconds[name], res.steps[name] = seconds, steps
@@ -396,7 +409,7 @@ def run_excitations(m, mesh, freq, excite, bc, out_dir, end_db=-40, sigma=None, 
                   copper_kw=copper_kw,
                   threads=threads,
                   diel=diel, diel_fref=diel_fref, max_steps=max_steps, exc_fmax=exc_fmax, setup=setup, analyse=analyse,
-                  end_on=end_on, engine=engine)
+                  end_on=end_on, engine=engine, line_plan=line_plan)
     if jobs == 1:
         for t in tasks:
             log(f"{who}: exciting {m.ports[t['k']].name} -> {run_dir(m, t['k'], out_dir, engine)}")

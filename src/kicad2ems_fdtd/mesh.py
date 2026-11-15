@@ -335,7 +335,8 @@ def _check(m, mesh, info, log):
     for p in m.ports:
         b = 1 - p.axis
         lines = mesh[b]
-        n_in = int(np.sum((lines > p.c[b] - p.w / 2 + 1e-9) & (lines < p.c[b] + p.w / 2 - 1e-9)))
+        lo, hi = sorted((p.box()[0][b], p.box()[1][b]))                 # (an oblique trace's cut: wider)
+        n_in = int(np.sum((lines > lo + 1e-9) & (lines < hi - 1e-9)))
         info.setdefault('lines_across_ports', {})[p.name] = n_in
         if n_in < 2:
             log(f"WARNING: only {n_in} mesh line(s) across the {p.w:.3f} mm trace at {p.name} - use a smaller --fine")

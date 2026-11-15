@@ -10,7 +10,7 @@ def fake_run_port(k, m, mesh, freq, bc, out_dir, dumps=(), xml_path=None, verbos
     """Top level so that spawned workers can import it: column k = (k + 1) * (i + 1)."""
     n = len(m.ports)
     col = np.array([[(k + 1) * (i + 1) + 0j for i in range(n)]] * len(freq))
-    return k, col, {}, None, 0.0, 100, None
+    return k, col, {}, None, 0.0, 100, None, None
 
 
 def test_parallel_matches_serial(demo_files, tmp_path, monkeypatch):

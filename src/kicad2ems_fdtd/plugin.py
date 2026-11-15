@@ -102,6 +102,11 @@ RUN = [
            "= Djordjevic-Sarkar model (er / tand constant-ish over the band) as Debye poles",
            choices=('fixed', 'wideband'), group=G_RUN),
     Option('diel_fref', 1.0, "GHz at which the stackup er / tand hold (wideband; default 1)", float, group=G_RUN),
+    Option('port_kind', 'lumped', "the ports' S: lumped (default: at the lumped ports, their feed in it); line = from "
+           "voltage and current probes on each port's straight feed, moved back to the port along the FDTD's own "
+           "line (the lumped ports still drive and terminate; every port driven; an error where a port cannot have "
+           "them); auto = line where a port's feed allows, lumped elsewhere (R-E1)",
+           choices=('lumped', 'line', 'auto'), gui='Port kind', group=G_RUN),
     Option('excite', None, "comma-separated ports to excite (default all), e.g. P1; antenna mode: the antenna's "
            "port (openEMS and mom25d)", list, gui='Driven ports (empty: all)', group='solvers'),
     Option('threads', 0, "openEMS threads per run (default 0 = all cores; with --jobs above 1: half the cores, "
@@ -352,16 +357,56 @@ class FDTD(Solver):
             run.log(f"WARNING: {jobs} parallel runs need ~{jobs * gb:.1f} GB, {ram:.1f} GB RAM installed - use fewer --jobs")
         return jobs
 
+    def line_plan(self, run, p, mesh, quiet=False):
+        """The line probes of this run's ports on `mesh` (--port-kind; lineport.plan_ports), {} for lumped ports
+        and in antenna mode; why a port stays lumped, logged. 'line' needs every port driven (an error), 'auto'
+        then keeps them all lumped."""
+        kind = getattr(run.s, 'port_kind', 'lumped') or 'lumped'
+        if run.s.antenna or kind == 'lumped':
+            return {}
+        from . import lineport
+        plan, notes = lineport.plan_ports(run.m, mesh, kind)
+        if plan and len(p.excite) < len(run.m.ports):
+            undriven = [q.name for k, q in enumerate(run.m.ports) if k not in p.excite]
+            if kind == 'line':
+                raise ValueError(f"--port-kind line needs every port driven: {', '.join(undriven)} not (--excite)")
+            notes, plan = [f"lumped ports: {', '.join(undriven)} not driven (line ports need every port's run)"], {}
+        if not quiet:
+            for n in notes:
+                run.log(f"{self.label}: {n}")
+        return plan
+
+    def line_s(self, run, r, plan, quiet=False):
+        """S (single-ended) from the line probes and the lumped ports (lineport.solve), else the runs' lumped S."""
+        if not plan:
+            return r.S
+        from . import lineport
+        S, lines = lineport.solve(run.m, run.freq, r, plan)
+        if not quiet:
+            ref = {}
+            for port, _, secs, _ in getattr(getattr(run, 'lm', None), 'paths', None) or []:
+                e = next((e for e, _, _ in secs if getattr(e, 'z0', None) and getattr(e, 'eeff', None)), None)
+                if e is not None:
+                    ref.setdefault(port, (e.z0, e.eeff))
+            for name, (zc, ee, d) in lines.items():
+                lm = f" (line model: {ref[name][0]:.1f} ohm, {ref[name][1]:.3f})" if name in ref else ''
+                run.log(f"  {name}: line port, its plane {d:.2f} mm along the feed: Zc {zc:.1f} ohm, eps_eff "
+                        f"{ee:.3f}{lm}; S moved back to the port")
+        return S
+
     def coarse(self, run, p, jobs, run_kw):
-        """Runs before the result's: the coarser --converge levels, on this engine (run_kw names it)."""
+        """Runs before the result's: the coarser --converge levels, on this engine (run_kw names it), with the
+        ports the result has (--port-kind)."""
         from .run import run_excitations
         from kicad2ems.api.solver import mixed_mode, fill_reciprocal
         for f, lm in (p.levels or [])[:-1]:
             run.log(f"--- mesh level x{f:g} ({lm['info']['cells'] / 1e6:.2f} M cells) ---")
+            plan = self.line_plan(run, p, lm, quiet=True)
             r = run_excitations(run.m, lm, run.freq, p.excite, p.bc, os.path.join(run.s.out, 'converge', f"L{f:g}"),
-                                jobs=jobs, **run_kw)
-            fill_reciprocal(r.S, p.excite)
-            p.coarse.append((f, mixed_mode(r.S, run.m)[0]))
+                                jobs=jobs, line_plan=plan or None, **run_kw)
+            S = self.line_s(run, r, plan, quiet=True)
+            fill_reciprocal(S, p.excite)
+            p.coarse.append((f, mixed_mode(S, run.m)[0]))
         if p.levels:
             run.log(f"--- mesh level x{p.levels[-1][0]:g} (finest: the result) ---")
 
@@ -429,8 +474,11 @@ class FDTD(Solver):
                                            xml_path=p.xml, dumps=p.dumps, **run_kw)
             p.ant = p.result.extra.get(m.ports[k].name)
         else:
+            plan = self.line_plan(run, p, p.grid)
             p.result = run_excitations(m, p.grid, run.freq, p.excite, p.bc, s.out, xml_path=p.xml, dumps=p.dumps,
-                                       dump_runs=dump_runs, jobs=jobs, **run_kw)
+                                       dump_runs=dump_runs, jobs=jobs, line_plan=plan or None, **run_kw)
+            p.result.S_lumped = p.result.S
+            p.result.S = self.line_s(run, p.result, plan)
         r = p.result
         missing = fill_reciprocal(r.S, p.excite)
         if missing:
