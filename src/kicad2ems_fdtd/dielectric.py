@@ -79,9 +79,9 @@ def fit_debye(er, tand, fref, fmin, fmax, npoles=None, tau_min=0.0):
 
 def describe(layers, fref, fmin, fmax):
     """Lines: er / tan d of each dielectric at fmin and fmax under the wideband model."""
-    out = [f"wideband dielectric (Djordjevic-Sarkar, matched at {fref / 1e9:g} GHz):"]
+    out = [f"wideband dielectric (Djordjevic-Sarkar, matched at {fref / 1e9:g} GHz, a known laminate at its own):"]
     for l in layers:
-        e = djordjevic_sarkar(l['er'], l['tand'], fref, np.array([max(fmin, fmax / 1e3), fmax]))
+        e = djordjevic_sarkar(l['er'], l['tand'], l.get('fref') or fref, np.array([max(fmin, fmax / 1e3), fmax]))
         td = -e.imag / e.real
         out.append(f"  {l['name']:<14s} er {e[0].real:.3f} -> {e[1].real:.3f}  tand {td[0]:.4f} -> {td[1]:.4f}  "
                    f"({max(fmin, fmax / 1e3) / 1e9:g} -> {fmax / 1e9:g} GHz)")

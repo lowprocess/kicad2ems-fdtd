@@ -198,7 +198,8 @@ def _debye_material(CSX, name, layer, fref, fmin, fmax, dt):
     the fit only uses poles above 2.5 dt). Every engine's structure has AddDebyeMaterial (openems/engine.py adds it to
     a CSXCAD without it)."""
     from .dielectric import fit_debye
-    e_inf, poles, kappa = fit_debye(layer['er'], layer['tand'], fref, fmin, fmax, tau_min=2.5 * dt)
+    e_inf, poles, kappa = fit_debye(layer['er'], layer['tand'], layer.get('fref') or fref, fmin, fmax,   # (its laminate's
+                                    tau_min=2.5 * dt)                                                     # own: R-E4)
     if not poles:
         return CSX.AddMaterial(name, epsilon=_f(e_inf), kappa=_f(kappa))
     mat = CSX.AddDebyeMaterial(name, order=len(poles), epsilon=_f(e_inf), kappa=_f(kappa))
