@@ -188,10 +188,13 @@ GPU_SLOTS = None                    # [Vulkan GPU index] a process each, of the 
 def gpu_slots(spec, runs):
     """The GPUs --gfdtd-gpus names ('all', or indices '0,1'), at most `runs` of them, as [Vulkan adapter index];
     None: not asked, or fewer than two of them usable (ValueError for an index there is no such GPU of)."""
-    from gfdtd.engine import vulkan_gpus
     spec = str(spec or '').strip().lower()
     if not spec:
         return None
+    try:
+        from gfdtd.engine import vulkan_gpus
+    except ImportError:
+        raise ValueError("--gfdtd-gpus needs a gfdtd with vulkan_gpus (update gfdtd)")
     usable = [k for k, _ in vulkan_gpus()]
     if spec == 'all':
         picked = usable
