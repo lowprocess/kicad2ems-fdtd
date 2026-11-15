@@ -14,9 +14,9 @@ def test_plugin_registered():
     assert get('gpu-fdtd') is sv and sv.in_auto and not sv.in_all
     assert sv.check()[0]                                              # numpy at worst
     assert sv.capabilities['antenna'].startswith('yes')
-    assert sv.options[-1].key == 'gfdtd_backend'                    # its own, after the shared FDTD settings
+    assert [o.key for o in sv.options[-2:]] == ['gfdtd_backend', 'gfdtd_gpus']    # its own, after the shared ones
     shared = {o.key: o for o in registry()['openems'].options}
-    assert all(shared[o.key] is o for o in sv.options[:-1])
+    assert all(shared[o.key] is o for o in sv.options[:-2])
 
 
 def test_engine_api_and_run_dir():
@@ -187,3 +187,26 @@ def test_gfdtd_runs_the_mesh_convergence_check():
     s = SimpleNamespace(converge=[1.0, 1.5], antenna=False, sigma=None)
     assert sv.levels(s) == 2 and sv.validate(s) is None and sv.assess(SimpleNamespace(plan=[AUTO], s=s)) == []
     assert 'two positive' in sv.validate(SimpleNamespace(converge=[1.0], antenna=False))
+
+
+def test_the_excitations_go_out_to_the_gpus_named(monkeypatch):
+    """R-D9: --gfdtd-gpus all or indices, a process each (threads ran each GPU at a fifth of its speed); fewer than
+    two usable, or not asked: None (one GPU); at most a GPU an excitation."""
+    import gfdtd.engine as E
+    from kicad2ems_fdtd import gfdtd as G
+    monkeypatch.setattr(E, 'vulkan_gpus', lambda: [(0, 'RX'), (1, 'GTX'), (2, 'Arc')])
+    assert G.gpu_slots('', 4) is None and G.gpu_slots('all', 4) == [0, 1, 2] and G.gpu_slots('all', 2) == [0, 1]
+    assert G.gpu_slots('1,0', 4) == [1, 0] and G.gpu_slots('1', 4) is None and G.gpu_slots('all', 1) is None
+    with pytest.raises(ValueError, match='no usable'):
+        G.gpu_slots('0,5', 4)
+    with pytest.raises(ValueError, match='indices'):
+        G.gpu_slots('first', 4)
+    import multiprocessing
+    ctx = multiprocessing.get_context('spawn')
+    counter, lock = ctx.Value('i', 0), ctx.Lock()
+    monkeypatch.delenv('EMSDEV_VULKAN_DEVICE', raising=False)
+    G.bind_process([1, 0], counter, lock)
+    assert os.environ['EMSDEV_VULKAN_DEVICE'] == '1'
+    G.bind_process([1, 0], counter, lock)
+    assert os.environ['EMSDEV_VULKAN_DEVICE'] == '0' and counter.value == 2
+

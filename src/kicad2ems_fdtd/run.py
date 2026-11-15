@@ -402,7 +402,10 @@ def run_excitations(m, mesh, freq, excite, bc, out_dir, end_db=-40, sigma=None, 
     import multiprocessing
     from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
     from .progress import Monitor, Tracker
-    in_threads = getattr(engine_module(engine), 'IN_THREADS', False)   # one process: the runs share it (gfdtd: the GPU)
+    mod = engine_module(engine)
+    slots = getattr(mod, 'GPU_SLOTS', None)
+    slots = slots if slots and len(slots) == jobs else None         # (R-D9: a process a GPU, bound as it starts)
+    in_threads = getattr(mod, 'IN_THREADS', False) and not slots    # one process: the runs share it (gfdtd: the GPU)
     log(f"{who}: {len(tasks)} excitation(s), {jobs} at a time" + ('' if in_threads else f", {threads} thread(s) each") +
         f" ({who} output in openems.log of each run under {os.path.join(out_dir, folder)})")
     mon = None
@@ -419,7 +422,9 @@ def run_excitations(m, mesh, freq, excite, bc, out_dir, end_db=-40, sigma=None, 
             futs = [ex.submit(_run_port, **t, **common, verbose=1, progress=dict(mode='file')) for t in tasks]
             outs = [f.result() for f in as_completed(futs)]
         else:
-            with ProcessPoolExecutor(jobs, mp_context=multiprocessing.get_context('spawn')) as ex:
+            ctx = multiprocessing.get_context('spawn')
+            kw = dict(initializer=mod.bind_process, initargs=(slots, ctx.Value('i', 0), ctx.Lock())) if slots else {}
+            with ProcessPoolExecutor(jobs, mp_context=ctx, **kw) as ex:
                 futs = [ex.submit(_run_port, **t, **common, verbose=1, progress=dict(mode='file')) for t in tasks]
                 outs = [f.result() for f in as_completed(futs)]
     finally:

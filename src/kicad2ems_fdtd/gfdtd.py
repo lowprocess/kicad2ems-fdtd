@@ -50,6 +50,11 @@ class GFDTD(FDTD):
                "CPU), gpu (Vulkan through slangpy, else CuPy; CuPy first on NVIDIA CUDA) or cpu (the compiled core: "
                "python -m gfdtd.core.build; else numpy, slow); GFDTD_BACKEND=cupy|vulkan picks the GPU's; its "
                "mesh and run settings are the FDTD ones shared with openEMS (--res, --end-db, ...)", choices=('auto', 'gpu', 'cpu'), name='backend', gui='Runs on', group=G),
+        Option('gfdtd_gpus', '', "gfdtd on Vulkan: the GPUs its excitations are shared out to, a process each taking the "
+               "next as it comes free - all (every discrete GPU with the kernels' features) or their indices (0,1); "
+               "default: one GPU. Worth it with GPUs of like speed: a second GPU 4.7x slower finishes its one "
+               "excitation of four after the first has done the other three", str, name='gpus',
+               gui='GPUs for the excitations', group=G),
     ]
 
     @property
@@ -137,12 +142,26 @@ class GFDTD(FDTD):
 
     def jobs(self, run, p):
         """Runs at once: --jobs when given; on the GPU as many as its cache holds (engine.concurrent_runs), on the
-        CPU one (the core's threads already share the cores)."""
+        CPU one (the core's threads already share the cores). --gfdtd-gpus: one a GPU named, each in a process of
+        its own bound to it (GPU_SLOTS; R-D9)."""
         from gfdtd.engine import concurrent_runs, resolve_backend
+        global GPU_SLOTS
+        GPU_SLOTS = None
         s = run.s
+        where = resolve_backend(self.engine(s).partition(':')[2])
+        slots = gpu_slots(getattr(s, 'gfdtd_gpus', '') or '', len(p.excite)) if where == 'vulkan' else None
+        if slots:
+            GPU_SLOTS = slots
+            from gfdtd.engine import vulkan_gpus
+            names = dict(vulkan_gpus())
+            run.log(f"gfdtd: the excitations shared out to {len(slots)} GPUs, a process each: "
+                    + ', '.join(names.get(k, str(k)) for k in slots))
+            return len(slots)
+        if getattr(s, 'gfdtd_gpus', '') and where != 'vulkan':
+            run.log("gfdtd: --gfdtd-gpus is for Vulkan's GPUs: one GPU used")
         if s.jobs > 1:
             return s.jobs
-        if resolve_backend(self.engine(s).partition(':')[2]) not in GPU_BACKENDS:
+        if where not in GPU_BACKENDS:
             return 1
         return concurrent_runs(p.grid['info']['cells'], len(p.excite))
 
@@ -161,6 +180,40 @@ class GFDTD(FDTD):
         self.summary(run)['backend'] = s.gfdtd_backend
         run.log(f"gfdtd: {p.grid['info']['cells'] / 1e6:.2f} M cells, boundaries {','.join(p.bc)}, {self.check(s)[1]}")
         return p
+
+
+GPU_SLOTS = None                    # [Vulkan GPU index] a process each, of the last plan (GFDTD.jobs), or None
+
+
+def gpu_slots(spec, runs):
+    """The GPUs --gfdtd-gpus names ('all', or indices '0,1'), at most `runs` of them, as [Vulkan adapter index];
+    None: not asked, or fewer than two of them usable (ValueError for an index there is no such GPU of)."""
+    from gfdtd.engine import vulkan_gpus
+    spec = str(spec or '').strip().lower()
+    if not spec:
+        return None
+    usable = [k for k, _ in vulkan_gpus()]
+    if spec == 'all':
+        picked = usable
+    else:
+        try:
+            picked = [int(x) for x in spec.replace(' ', '').split(',') if x]
+        except ValueError:
+            raise ValueError(f"--gfdtd-gpus {spec!r}: all, or GPU indices such as 0,1")
+        bad = [k for k in picked if k not in usable]
+        if bad:
+            raise ValueError(f"--gfdtd-gpus: no usable Vulkan GPU {', '.join(map(str, bad))} (there are "
+                             f"{', '.join(map(str, usable)) or 'none'})")
+    picked = list(dict.fromkeys(picked))[:max(1, int(runs))]
+    return picked if len(picked) > 1 else None
+
+
+def bind_process(slots, counter, lock):
+    """A worker process's initializer: the next slot's GPU, as EMSDEV_VULKAN_DEVICE (read when its runs pick one)."""
+    with lock:
+        k = counter.value
+        counter.value += 1
+    os.environ['EMSDEV_VULKAN_DEVICE'] = str(slots[k % len(slots)])
 
 
 LABEL = 'gfdtd'                     # the engine's name in kicad2ems's log
